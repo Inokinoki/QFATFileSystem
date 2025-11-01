@@ -30,18 +30,16 @@ struct FileInfo {
 class QFATFileSystem
 {
 public:
-    QFATFileSystem(const QString &filePath);
+    QFATFileSystem(QIODevice *device);
     virtual ~QFATFileSystem();
-    bool open();
-    void close();
 
     // Pure virtual methods to be implemented by derived classes
     virtual QList<FileInfo> listRootDirectory() = 0;
     virtual QList<FileInfo> listDirectory(const QString &path) = 0;
 
 protected:
-    QFile m_file;
     QDataStream m_stream;
+    QIODevice *m_device;
 
     // Common helper methods
     FileInfo parseDirectoryEntry(quint8 *entry, QString &longName);
@@ -62,7 +60,7 @@ protected:
 class QFAT16FileSystem : public QFATFileSystem
 {
 public:
-    QFAT16FileSystem(const QString &filePath);
+    QFAT16FileSystem(QIODevice *device);
 
     // FAT16 specific methods
     QList<FileInfo> listRootDirectory() override;
@@ -80,7 +78,7 @@ private:
 class QFAT32FileSystem : public QFATFileSystem
 {
 public:
-    QFAT32FileSystem(const QString &filePath);
+    QFAT32FileSystem(QIODevice *device);
 
     // FAT32 specific methods
     QList<FileInfo> listRootDirectory() override;

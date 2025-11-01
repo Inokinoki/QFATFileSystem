@@ -21,8 +21,9 @@ private slots:
 
 void TestQFATFileSystem::testListFilesFAT16()
 {
-    QFAT16FileSystem fs(TEST_FAT16_IMAGE_PATH);
-    QVERIFY(fs.open());
+    QFile file(TEST_FAT16_IMAGE_PATH);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QFAT16FileSystem fs(&file);
 
     QList<FileInfo> files = fs.listRootDirectory();
 
@@ -39,14 +40,13 @@ void TestQFATFileSystem::testListFilesFAT16()
             qDebug() << "Modified:" << file.modified.toString();
         }
     }
-
-    fs.close();
 }
 
 void TestQFATFileSystem::testListFilesFAT32()
 {
-    QFAT32FileSystem fs(TEST_FAT32_IMAGE_PATH);
-    QVERIFY(fs.open());
+    QFile file(TEST_FAT32_IMAGE_PATH);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QFAT32FileSystem fs(&file);
 
     QList<FileInfo> files = fs.listRootDirectory();
 
@@ -63,14 +63,13 @@ void TestQFATFileSystem::testListFilesFAT32()
             qDebug() << "Modified:" << file.modified.toString();
         }
     }
-
-    fs.close();
 }
 
 void TestQFATFileSystem::testListRootDirectoryFAT16()
 {
-    QFAT16FileSystem fs(TEST_FAT16_IMAGE_PATH);
-    QVERIFY(fs.open());
+    QFile file(TEST_FAT16_IMAGE_PATH);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QFAT16FileSystem fs(&file);
 
     QList<FileInfo> files = fs.listRootDirectory();
 
@@ -78,14 +77,13 @@ void TestQFATFileSystem::testListRootDirectoryFAT16()
     QVERIFY(files.size() >= 0);
 
     qDebug() << "Root directory (FAT16): Found" << files.size() << "entries";
-
-    fs.close();
 }
 
 void TestQFATFileSystem::testListRootDirectoryFAT32()
 {
-    QFAT32FileSystem fs(TEST_FAT32_IMAGE_PATH);
-    QVERIFY(fs.open());
+    QFile file(TEST_FAT32_IMAGE_PATH);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QFAT32FileSystem fs(&file);
 
     QList<FileInfo> files = fs.listRootDirectory();
 
@@ -93,8 +91,6 @@ void TestQFATFileSystem::testListRootDirectoryFAT32()
     QVERIFY(files.size() >= 0);
 
     qDebug() << "Root directory (FAT32): Found" << files.size() << "entries";
-
-    fs.close();
 }
 
 void TestQFATFileSystem::testFileInfoStructure()
@@ -129,8 +125,9 @@ void TestQFATFileSystem::testFileInfoStructure()
 
 void TestQFATFileSystem::testListDirectoryFAT16()
 {
-    QFAT16FileSystem fs(TEST_FAT16_IMAGE_PATH);
-    QVERIFY(fs.open());
+    QFile file(TEST_FAT16_IMAGE_PATH);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QFAT16FileSystem fs(&file);
 
     // First, get root directory files to find a subdirectory
     QList<FileInfo> rootFiles = fs.listRootDirectory();
@@ -153,14 +150,13 @@ void TestQFATFileSystem::testListDirectoryFAT16()
     }
 
     qDebug() << "Directory listing test - found directories:" << foundDir;
-
-    fs.close();
 }
 
 void TestQFATFileSystem::testListDirectoryFAT32()
 {
-    QFAT32FileSystem fs(TEST_FAT32_IMAGE_PATH);
-    QVERIFY(fs.open());
+    QFile file(TEST_FAT32_IMAGE_PATH);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QFAT32FileSystem fs(&file);
 
     // First, get root directory files to find a subdirectory
     QList<FileInfo> rootFiles = fs.listRootDirectory();
@@ -183,31 +179,27 @@ void TestQFATFileSystem::testListDirectoryFAT32()
     }
 
     qDebug() << "Directory listing test - found directories:" << foundDir;
-
-    fs.close();
 }
 
 void TestQFATFileSystem::testListDirectoryPath()
 {
-    QFAT16FileSystem fs16(TEST_FAT16_IMAGE_PATH);
-    QVERIFY(fs16.open());
+    QFile file16(TEST_FAT16_IMAGE_PATH);
+    QVERIFY(file16.open(QIODevice::ReadOnly));
+    QFAT16FileSystem fs16(&file16);
 
     // Test root directory via path
     QList<FileInfo> rootFiles = fs16.listDirectory("/");
     QVERIFY(rootFiles.size() >= 0);
     qDebug() << "Root directory via path contains" << rootFiles.size() << "entries";
 
-    fs16.close();
-
-    QFAT32FileSystem fs32(TEST_FAT32_IMAGE_PATH);
-    QVERIFY(fs32.open());
+    QFile file32(TEST_FAT32_IMAGE_PATH);
+    QVERIFY(file32.open(QIODevice::ReadOnly));
+    QFAT32FileSystem fs32(&file32);
 
     // Test root directory via path
     QList<FileInfo> rootFiles32 = fs32.listDirectory("/");
     QVERIFY(rootFiles32.size() >= 0);
     qDebug() << "Root directory via path (FAT32) contains" << rootFiles32.size() << "entries";
-
-    fs32.close();
 }
 
 QTEST_MAIN(TestQFATFileSystem)

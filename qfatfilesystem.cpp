@@ -11,31 +11,16 @@
 // Base class: QFATFileSystem
 // ============================================================================
 
-QFATFileSystem::QFATFileSystem(const QString &filePath)
-    : m_file(filePath)
+QFATFileSystem::QFATFileSystem(QIODevice *device)
+    : m_device(device)
 {
+    m_stream.setDevice(m_device);
+    // Set byte order to Little Endian so that the data is read correctly
+    m_stream.setByteOrder(QDataStream::LittleEndian);
 }
 
 QFATFileSystem::~QFATFileSystem()
 {
-    close();
-}
-
-bool QFATFileSystem::open()
-{
-    if (!m_file.open(QIODevice::ReadOnly)) {
-        qWarning() << "Cannot open file:" << m_file.fileName();
-        return false;
-    }
-    m_stream.setDevice(&m_file);
-    // Set byte order to Little Endian so that the data is read correctly
-    m_stream.setByteOrder(QDataStream::LittleEndian);
-    return true;
-}
-
-void QFATFileSystem::close()
-{
-    m_file.close();
 }
 
 // Helper methods for reading BPB values
@@ -228,7 +213,7 @@ QList<FileInfo> QFATFileSystem::readDirectoryEntries(quint32 offset, quint32 max
 {
     QList<FileInfo> files;
 
-    if (!m_file.isOpen()) {
+    if (!m_device->isOpen() || m_device->atEnd()) {
         return files;
     }
 
@@ -289,8 +274,8 @@ QList<FileInfo> QFATFileSystem::readDirectoryEntries(quint32 offset, quint32 max
 // QFAT16FileSystem
 // ============================================================================
 
-QFAT16FileSystem::QFAT16FileSystem(const QString &filePath)
-    : QFATFileSystem(filePath)
+QFAT16FileSystem::QFAT16FileSystem(QIODevice *device)
+    : QFATFileSystem(device)
 {
 }
 
@@ -360,7 +345,7 @@ quint16 QFAT16FileSystem::readNextCluster(quint16 cluster)
 
 QList<FileInfo> QFAT16FileSystem::listRootDirectory()
 {
-    if (!m_file.isOpen()) {
+    if (!m_device->isOpen() || m_device->atEnd()) {
         qWarning() << "File not open";
         return QList<FileInfo>();
     }
@@ -381,7 +366,7 @@ QList<FileInfo> QFAT16FileSystem::listDirectory(quint16 cluster)
 {
     QList<FileInfo> files;
 
-    if (!m_file.isOpen() || cluster < 2) {
+    if (!m_device->isOpen() || cluster < 2) {
         return files;
     }
 
@@ -440,8 +425,8 @@ QList<FileInfo> QFAT16FileSystem::listDirectory(const QString &path)
 // QFAT32FileSystem
 // ============================================================================
 
-QFAT32FileSystem::QFAT32FileSystem(const QString &filePath)
-    : QFATFileSystem(filePath)
+QFAT32FileSystem::QFAT32FileSystem(QIODevice *device)
+    : QFATFileSystem(device)
 {
 }
 
@@ -498,8 +483,8 @@ quint32 QFAT32FileSystem::readNextCluster(quint32 cluster)
 
 QList<FileInfo> QFAT32FileSystem::listRootDirectory()
 {
-    if (!m_file.isOpen()) {
-        qWarning() << "File not open";
+    if (!m_device->isOpen() || m_device->atEnd()) {
+        qWarning() << "Device not open";
         return QList<FileInfo>();
     }
 
@@ -511,7 +496,7 @@ QList<FileInfo> QFAT32FileSystem::listDirectory(quint32 cluster)
 {
     QList<FileInfo> files;
 
-    if (!m_file.isOpen() || cluster < 2) {
+    if (!m_device->isOpen() || cluster < 2) {
         return files;
     }
 
@@ -558,6 +543,11 @@ QList<FileInfo> QFAT32FileSystem::listDirectory(const QString &path)
     // For simplicity, if path is empty or "/", list root directory
     if (path.isEmpty() || path == "/" || path == "\\") {
         return listRootDirectory();
+    }
+
+    QString normalizedPath = path.toLower();
+    if (normalizedPath.endsWith('/') || normalizedPath.endsWith('\\')) {
+        normalizedPath = normalizedPath.left(normalizedPath.length() - 1);
     }
 
     // TODO: Implement path traversal to find and list subdirectories
