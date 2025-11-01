@@ -9,8 +9,6 @@ class TestQFATFileSystem : public QObject
 {
     Q_OBJECT
 private slots:
-    void testReadFAT16();
-    void testReadFAT32();
     void testListFilesFAT16();
     void testListFilesFAT32();
     void testListRootDirectoryFAT16();
@@ -20,22 +18,6 @@ private slots:
     void testListDirectoryFAT32();
     void testListDirectoryPath();
 };
-
-void TestQFATFileSystem::testReadFAT16()
-{
-    QFATFileSystem fs(TEST_FAT16_IMAGE_PATH);
-    QVERIFY(fs.open());
-    fs.readFAT16();
-    fs.close();
-}
-
-void TestQFATFileSystem::testReadFAT32()
-{
-    QFATFileSystem fs(TEST_FAT32_IMAGE_PATH);
-    QVERIFY(fs.open());
-    fs.readFAT32();
-    fs.close();
-}
 
 void TestQFATFileSystem::testListFilesFAT16()
 {

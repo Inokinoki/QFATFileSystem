@@ -27,42 +27,6 @@ void QFATFileSystem::close()
     m_file.close();
 }
 
-void QFATFileSystem::readFAT16()
-{
-    qDebug() << "Reading FAT16 file system";
-
-    // Simplified example: Read the BIOS Parameter Block (BPB)
-    m_stream.device()->seek(0x0B);
-    quint16 bytesPerSector;
-    quint8 sectorsPerCluster;
-
-    m_stream >> bytesPerSector;
-    m_stream >> sectorsPerCluster;
-
-    qDebug() << "Bytes per sector:" << bytesPerSector;
-    qDebug() << "Sectors per cluster:" << sectorsPerCluster;
-
-    // Additional FAT16 reading logic goes here...
-}
-
-void QFATFileSystem::readFAT32()
-{
-    qDebug() << "Reading FAT32 file system";
-
-    // Simplified example: Read the BIOS Parameter Block (BPB)
-    m_stream.device()->seek(0x0B);
-    quint16 bytesPerSector;
-    quint8 sectorsPerCluster;
-
-    m_stream >> bytesPerSector;
-    m_stream >> sectorsPerCluster;
-
-    qDebug() << "Bytes per sector:" << bytesPerSector;
-    qDebug() << "Sectors per cluster:" << sectorsPerCluster;
-
-    // Additional FAT32 reading logic goes here...
-}
-
 // Helper methods for reading BPB values
 quint16 QFATFileSystem::readBytesPerSector()
 {

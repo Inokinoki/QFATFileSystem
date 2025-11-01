@@ -32,8 +32,6 @@ public:
     QFATFileSystem(const QString &filePath);
     bool open();
     void close();
-    void readFAT16();
-    void readFAT32();
 
     // File listing methods
     QList<FileInfo> listFilesFAT16();
