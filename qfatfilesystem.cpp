@@ -2,8 +2,9 @@
 #include <QDataStream>
 #include <QDebug>
 #include <QFile>
-#include <cstring>
+#include <QString>
 
+#include "internal_constants.h"
 #include "qfatfilesystem.h"
 
 // ============================================================================
@@ -27,6 +28,7 @@ bool QFATFileSystem::open()
         return false;
     }
     m_stream.setDevice(&m_file);
+    // Set byte order to Little Endian so that the data is read correctly
     m_stream.setByteOrder(QDataStream::LittleEndian);
     return true;
 }
@@ -39,7 +41,7 @@ void QFATFileSystem::close()
 // Helper methods for reading BPB values
 quint16 QFATFileSystem::readBytesPerSector()
 {
-    m_stream.device()->seek(0x0B);
+    m_stream.device()->seek(BPB_BYTES_PER_SECTOR_OFFSET);
     quint16 value;
     m_stream >> value;
     return value;
@@ -47,7 +49,7 @@ quint16 QFATFileSystem::readBytesPerSector()
 
 quint8 QFATFileSystem::readSectorsPerCluster()
 {
-    m_stream.device()->seek(0x0D);
+    m_stream.device()->seek(BPB_SECTORS_PER_CLUSTER_OFFSET);
     quint8 value;
     m_stream >> value;
     return value;
@@ -55,7 +57,7 @@ quint8 QFATFileSystem::readSectorsPerCluster()
 
 quint16 QFATFileSystem::readReservedSectors()
 {
-    m_stream.device()->seek(0x0E);
+    m_stream.device()->seek(BPB_RESERVED_SECTORS_OFFSET);
     quint16 value;
     m_stream >> value;
     return value;
@@ -63,7 +65,7 @@ quint16 QFATFileSystem::readReservedSectors()
 
 quint8 QFATFileSystem::readNumberOfFATs()
 {
-    m_stream.device()->seek(0x10);
+    m_stream.device()->seek(BPB_NUMBER_OF_FATS_OFFSET);
     quint8 value;
     m_stream >> value;
     return value;
@@ -71,7 +73,7 @@ quint8 QFATFileSystem::readNumberOfFATs()
 
 quint16 QFATFileSystem::readRootEntryCount()
 {
-    m_stream.device()->seek(0x11);
+    m_stream.device()->seek(BPB_ROOT_ENTRY_COUNT_OFFSET);
     quint16 value;
     m_stream >> value;
     return value;
@@ -79,24 +81,29 @@ quint16 QFATFileSystem::readRootEntryCount()
 
 bool QFATFileSystem::isLongFileNameEntry(quint8 *entry)
 {
-    // Long filename entries have attribute 0x0F
-    return (entry[0x0B] & 0x3F) == 0x0F;
+    // Long filename entries have attribute long file name
+    return (entry[ENTRY_ATTRIBUTE_OFFSET] & ENTRY_ATTRIBUTE_LONG_FILE_NAME) != 0;
 }
 
 bool QFATFileSystem::isDeletedEntry(quint8 *entry)
 {
-    // Deleted entries start with 0xE5
-    return entry[0] == 0xE5;
+    // Deleted entries have the deleted attribute
+    return entry[ENTRY_NAME_OFFSET] == ENTRY_DELETED;
 }
 
 bool QFATFileSystem::isValidEntry(quint8 *entry)
 {
-    // Valid entries don't start with 0x00, 0xE5, or 0x2E (current/parent directory)
-    if (entry[0] == 0x00 || entry[0] == 0xE5) {
+    // Valid entries don't start with end of directory, deleted, or current/parent directory
+    if (entry[ENTRY_NAME_OFFSET] == ENTRY_END_OF_DIRECTORY || entry[ENTRY_NAME_OFFSET] == ENTRY_DELETED) {
         return false;
     }
     // Skip . and .. entries
-    if (entry[0] == 0x2E) {
+    if (entry[ENTRY_NAME_OFFSET] == ENTRY_CURRENT_DIRECTORY) {
+        return false;
+    }
+    // Skip volume label entries
+    quint8 attributes = entry[ENTRY_ATTRIBUTE_OFFSET];
+    if ((attributes & ENTRY_ATTRIBUTE_VOLUME_LABEL) != 0) {
         return false;
     }
     return true;
@@ -106,26 +113,26 @@ QString QFATFileSystem::readLongFileName(quint8 *entry)
 {
     // Long filename entries contain UTF-16LE characters
     QString name;
-    // Read characters from offset 0x01, 0x0E, 0x1A (3 parts: 5, 6, 2 chars)
-    quint16 chars[13];
+    // Read characters from 3 parts: 5, 6, 2 chars
+    quint16 chars[ENTRY_LFN_CHARS];
     int pos = 0;
 
-    // Part 1: offset 0x01-0x0A (5 characters, 10 bytes)
-    for (int i = 0; i < 5; i++) {
-        chars[pos++] = entry[0x01 + i * 2] | (entry[0x01 + i * 2 + 1] << 8);
+    // Part 1: 5 characters, 10 bytes
+    for (int i = 0; i < ENTRY_LFN_PART1_LENGTH / 2; i++) {
+        chars[pos++] = (entry[ENTRY_LFN_PART1_OFFSET + i * 2] | (entry[ENTRY_LFN_PART1_OFFSET + (i + 1) * 2] << 8));
     }
-    // Part 2: offset 0x0E-0x19 (6 characters, 12 bytes)
-    for (int i = 0; i < 6; i++) {
-        chars[pos++] = entry[0x0E + i * 2] | (entry[0x0E + i * 2 + 1] << 8);
+    // Part 2: 6 characters, 12 bytes
+    for (int i = 0; i < ENTRY_LFN_PART2_LENGTH / 2; i++) {
+        chars[pos++] = (entry[ENTRY_LFN_PART2_OFFSET + i * 2] | (entry[ENTRY_LFN_PART2_OFFSET + (i + 1) * 2] << 8));
     }
-    // Part 3: offset 0x1C-0x1F (2 characters, 4 bytes) - Note: offset is 0x1C, not 0x1A
-    for (int i = 0; i < 2; i++) {
-        chars[pos++] = entry[0x1C + i * 2] | (entry[0x1C + i * 2 + 1] << 8);
+    // Part 3: 2 characters, 4 bytes
+    for (int i = 0; i < ENTRY_LFN_PART3_LENGTH / 2; i++) {
+        chars[pos++] = (entry[ENTRY_LFN_PART3_OFFSET + i * 2] | (entry[ENTRY_LFN_PART3_OFFSET + (i + 1) * 2] << 8));
     }
 
     // Convert to QString, stopping at null terminator or 0xFFFF
-    for (int i = 0; i < 13; i++) {
-        if (chars[i] == 0 || chars[i] == 0xFFFF)
+    for (int i = 0; i < ENTRY_LFN_CHARS; i++) {
+        if (chars[i] == QChar::Null || chars[i] == 0xFFFF)
             break;
         name.append(QChar(chars[i]));
     }
@@ -140,7 +147,7 @@ FileInfo QFATFileSystem::parseDirectoryEntry(quint8 *entry, QString &longName)
     // Read 8.3 filename (remove trailing spaces)
     QString name8_3;
     int nameEnd = 7;
-    while (nameEnd >= 0 && entry[nameEnd] == 0x20)
+    while (nameEnd >= 0 && entry[nameEnd] == QChar::Space)
         nameEnd--;
     for (int i = 0; i <= nameEnd; i++) {
         name8_3.append(QChar(entry[i]));
@@ -149,7 +156,7 @@ FileInfo QFATFileSystem::parseDirectoryEntry(quint8 *entry, QString &longName)
     // Read extension (remove trailing spaces)
     QString ext;
     int extEnd = 10;
-    while (extEnd >= 8 && entry[extEnd] == 0x20)
+    while (extEnd >= 8 && entry[extEnd] == QChar::Space)
         extEnd--;
     for (int i = 8; i <= extEnd; i++) {
         ext.append(QChar(entry[i]));
@@ -169,59 +176,52 @@ FileInfo QFATFileSystem::parseDirectoryEntry(quint8 *entry, QString &longName)
     info.longName = longName.isEmpty() ? name8_3 : longName.trimmed();
 
     // Read attributes
-    info.attributes = entry[0x0B];
-    info.isDirectory = (info.attributes & 0x10) != 0;
+    info.attributes = entry[ENTRY_ATTRIBUTE_OFFSET];
+    info.isDirectory = (info.attributes & ENTRY_ATTRIBUTE_DIRECTORY) != 0;
 
-    // Read file size (bytes 0x1C-0x1F)
-    info.size = entry[0x1C] | (entry[0x1D] << 8) | (entry[0x1E] << 16) | (entry[0x1F] << 24);
+    // Read file size (4 bytes, Little Endian)
+    info.size = (entry[ENTRY_SIZE_OFFSET] | (entry[ENTRY_SIZE_OFFSET + 1] << 8) | (entry[ENTRY_SIZE_OFFSET + 2] << 16) | (entry[ENTRY_SIZE_OFFSET + 3] << 24));
 
-    // Read first cluster (bytes 0x1A-0x1B for FAT16, 0x1A-0x1D for FAT32)
-    // For FAT16, use low word; for FAT32, we'll need to read the high word from offset 0x14
-    info.cluster = entry[0x1A] | (entry[0x1B] << 8);
+    // Read first cluster (2 bytes, Little Endian)
+    // For FAT16, use low word; for FAT32, we'll need to read the high word from high order cluster address
+    info.cluster = entry[ENTRY_CLUSTER_OFFSET] | (entry[ENTRY_CLUSTER_OFFSET + 1] << 8);
 
-    // For FAT32, also read high word (offset 0x14-0x15)
+    // For FAT32, also read high word (2 bytes, Little Endian)
     // Note: This assumes FAT32 - we'd need to detect FAT type to be precise
-    quint16 clusterHigh = entry[0x14] | (entry[0x15] << 8);
+    quint16 clusterHigh = entry[ENTRY_HIGH_ORDER_CLUSTER_ADDRESS_OFFSET] | (entry[ENTRY_HIGH_ORDER_CLUSTER_ADDRESS_OFFSET + 1] << 8);
     if (clusterHigh > 0) {
         info.cluster |= (static_cast<quint32>(clusterHigh) << 16);
     }
 
-    // Read date/time
-    // Created time: offset 0x0E-0x0F
-    // Created date: offset 0x10-0x11
-    quint16 createdTime = entry[0x0E] | (entry[0x0F] << 8);
-    quint16 createdDate = entry[0x10] | (entry[0x11] << 8);
+    // Read date/time, little endian
+    quint16 createdTime = (entry[ENTRY_CREATION_DATE_TIME_OFFSET] | (entry[ENTRY_CREATION_DATE_TIME_OFFSET + 1] << 8));
+    quint16 createdDate = (entry[ENTRY_CREATION_DATE_TIME_OFFSET + 2] | (entry[ENTRY_CREATION_DATE_TIME_OFFSET + 3] << 8));
+    quint16 modifiedTime = (entry[ENTRY_WRITTEN_DATE_TIME_OFFSET] | (entry[ENTRY_WRITTEN_DATE_TIME_OFFSET + 1] << 8));
+    quint16 modifiedDate = (entry[ENTRY_WRITTEN_DATE_TIME_OFFSET + 2] | (entry[ENTRY_WRITTEN_DATE_TIME_OFFSET + 3] << 8));
 
-    // Modified date/time: offset 0x18-0x1B
-    // Modified time: offset 0x16-0x17
-    // Modified date: offset 0x18-0x19
-    quint16 modifiedTime = entry[0x16] | (entry[0x17] << 8);
-    quint16 modifiedDate = entry[0x18] | (entry[0x19] << 8);
-
-    // Parse FAT date/time format (simplified)
+    // Parse FAT date/time format
     if (modifiedDate != 0) {
-        int year = 1980 + ((modifiedDate >> 9) & 0x7F);
-        int month = (modifiedDate >> 5) & 0x0F;
-        int day = modifiedDate & 0x1F;
-        int hour = (modifiedTime >> 11) & 0x1F;
-        int minute = (modifiedTime >> 5) & 0x3F;
-        int second = (modifiedTime & 0x1F) * 2;
-
-        info.modified = QDateTime(QDate(year, month, day), QTime(hour, minute, second));
+        info.modified = parseDateTime(modifiedDate, modifiedTime);
     }
-
     if (createdDate != 0) {
-        int year = 1980 + ((createdDate >> 9) & 0x7F);
-        int month = (createdDate >> 5) & 0x0F;
-        int day = createdDate & 0x1F;
-        int hour = (createdTime >> 11) & 0x1F;
-        int minute = (createdTime >> 5) & 0x3F;
-        int second = (createdTime & 0x1F) * 2;
-
-        info.created = QDateTime(QDate(year, month, day), QTime(hour, minute, second));
+        info.created = parseDateTime(createdDate, createdTime);
     }
 
     return info;
+}
+
+QDateTime QFATFileSystem::parseDateTime(quint16 date, quint16 time)
+{
+    // Parse date/time from FAT format
+    // date: | year (1980-2107, 7 bits) | month (1-12, 4 bits) | day (1-31, 5 bits) |
+    // time: | hour (0-23, 5 bits) | minute (0-59, 6 bits) | second (0-59, 5 bits) |
+    int year = ENTRY_DATE_TIME_START_OF_YEAR + ((date >> 9) & MASK_7_BITS);
+    int month = (date >> 5) & MASK_4_BITS;
+    int day = (date & MASK_5_BITS) + 1;
+    int hour = (time >> 11) & MASK_5_BITS;
+    int minute = (time >> 5) & MASK_6_BITS;
+    int second = (time & MASK_5_BITS) * 2;
+    return QDateTime(QDate(year, month, day), QTime(hour, minute, second));
 }
 
 QList<FileInfo> QFATFileSystem::readDirectoryEntries(quint32 offset, quint32 maxSize)
@@ -241,13 +241,13 @@ QList<FileInfo> QFATFileSystem::readDirectoryEntries(quint32 offset, quint32 max
         return files;
     }
 
-    quint32 numEntries = bytesRead / 32;
+    quint32 numEntries = bytesRead / (int)ENTRY_SIZE;
     QString currentLongName;
 
     for (quint32 i = 0; i < numEntries; i++) {
-        quint8 *entry = reinterpret_cast<quint8 *>(buffer.data() + i * 32);
+        quint8 *entry = reinterpret_cast<quint8 *>(buffer.data() + i * ENTRY_SIZE);
 
-        if (entry[0] == 0x00) {
+        if (entry[ENTRY_NAME_OFFSET] == ENTRY_END_OF_DIRECTORY) {
             // End of directory
             break;
         }
@@ -260,11 +260,11 @@ QList<FileInfo> QFATFileSystem::readDirectoryEntries(quint32 offset, quint32 max
         if (isLongFileNameEntry(entry)) {
             // Read long filename part
             QString part = readLongFileName(entry);
-            quint8 sequence = entry[0] & 0x1F;
-            bool isLastInSequence = (entry[0] & 0x40) != 0;
+            quint8 sequence = entry[ENTRY_NAME_OFFSET] & ENTRY_LFN_SEQUENCE_MASK;
+            bool isLastInSequence = ((entry[ENTRY_NAME_OFFSET] & ENTRY_LFN_SEQUENCE_LAST_MASK) != 0);
 
             // Long filename entries appear before the short entry in reverse order
-            // The entry with sequence number marked with 0x40 appears first
+            // The entry with sequence number marked with last mask appears first
             if (isLastInSequence) {
                 // This is the first entry we see (highest sequence number)
                 currentLongName = part;
@@ -301,7 +301,7 @@ quint16 QFAT16FileSystem::readRootDirSector()
     quint16 reservedSectors = readReservedSectors();
     quint8 numFATs = readNumberOfFATs();
 
-    m_stream.device()->seek(0x16);
+    m_stream.device()->seek(BPB_SECTORS_PER_FAT_OFFSET);
     quint16 sectorsPerFAT;
     m_stream >> sectorsPerFAT;
 
@@ -323,12 +323,12 @@ quint32 QFAT16FileSystem::calculateClusterOffset(quint16 cluster)
     quint16 reservedSectors = readReservedSectors();
     quint8 numFATs = readNumberOfFATs();
 
-    m_stream.device()->seek(0x16);
+    m_stream.device()->seek(BPB_SECTORS_PER_FAT_OFFSET);
     quint16 sectorsPerFAT;
     m_stream >> sectorsPerFAT;
 
     quint16 rootEntryCount = readRootEntryCount();
-    quint32 rootDirSectors = (rootEntryCount * 32 + bytesPerSector - 1) / bytesPerSector;
+    quint32 rootDirSectors = (rootEntryCount * ENTRY_SIZE + bytesPerSector - 1) / bytesPerSector;
 
     // Data area starts after reserved sectors + FATs + root directory
     quint32 dataAreaStart = reservedSectors + (numFATs * sectorsPerFAT) + rootDirSectors;
@@ -372,7 +372,7 @@ QList<FileInfo> QFAT16FileSystem::listRootDirectory()
         rootEntryCount = 512; // Default if not specified
     }
 
-    quint32 rootDirSize = rootEntryCount * 32; // Each entry is 32 bytes
+    quint32 rootDirSize = rootEntryCount * ENTRY_SIZE;
 
     return readDirectoryEntries(rootDirOffset, rootDirSize);
 }
@@ -391,7 +391,7 @@ QList<FileInfo> QFAT16FileSystem::listDirectory(quint16 cluster)
 
     quint16 currentCluster = cluster;
     quint32 totalSize = 0;
-    const quint32 maxDirSize = 64 * 1024; // Limit directory size to 64KB
+    const quint32 maxDirSize = DATA_AREA_SIZE; // Limit directory size to DATA_AREA_SIZE
 
     // Follow cluster chain
     while (currentCluster >= 2 && currentCluster < 0xFFF8 && totalSize < maxDirSize) {
@@ -447,8 +447,8 @@ QFAT32FileSystem::QFAT32FileSystem(const QString &filePath)
 
 quint32 QFAT32FileSystem::readRootDirCluster()
 {
-    // For FAT32, root directory cluster is stored at offset 0x2C
-    m_stream.device()->seek(0x2C);
+    // For FAT32, root directory cluster is stored in the BIOS Parameter Block
+    m_stream.device()->seek(BPB_ROOT_DIRECTORY_CLUSTER_OFFSET);
     quint32 value;
     m_stream >> value;
     return value;
@@ -461,7 +461,7 @@ quint32 QFAT32FileSystem::calculateClusterOffset(quint32 cluster)
     quint16 reservedSectors = readReservedSectors();
     quint8 numFATs = readNumberOfFATs();
 
-    m_stream.device()->seek(0x24);
+    m_stream.device()->seek(BPB_SECTORS_PER_FAT_OFFSET);
     quint32 sectorsPerFAT;
     m_stream >> sectorsPerFAT;
 
@@ -521,7 +521,7 @@ QList<FileInfo> QFAT32FileSystem::listDirectory(quint32 cluster)
 
     quint32 currentCluster = cluster;
     quint32 totalSize = 0;
-    const quint32 maxDirSize = 64 * 1024; // Limit directory size to 64KB
+    const quint32 maxDirSize = DATA_AREA_SIZE; // Limit directory size to DATA_AREA_SIZE
 
     // Follow cluster chain
     while (currentCluster >= 2 && currentCluster < 0x0FFFFFF8 && totalSize < maxDirSize) {

@@ -49,6 +49,7 @@ protected:
     bool isValidEntry(quint8 *entry);
     bool isDeletedEntry(quint8 *entry);
     bool isLongFileNameEntry(quint8 *entry);
+    QDateTime parseDateTime(quint16 date, quint16 time);
     quint16 readBytesPerSector();
     quint8 readSectorsPerCluster();
     quint16 readReservedSectors();
