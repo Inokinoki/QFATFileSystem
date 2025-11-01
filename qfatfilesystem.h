@@ -26,45 +26,70 @@ struct FileInfo {
     }
 };
 
+// Base class with common FAT filesystem functionality
 class QFATFileSystem
 {
 public:
     QFATFileSystem(const QString &filePath);
+    virtual ~QFATFileSystem();
     bool open();
     void close();
 
-    // File listing methods
-    QList<FileInfo> listFilesFAT16();
-    QList<FileInfo> listFilesFAT32();
-    QList<FileInfo> listRootDirectory();
-    QList<FileInfo> listDirectory(const QString &path);
-    QList<FileInfo> listDirectoryFAT16(quint16 cluster);
-    QList<FileInfo> listDirectoryFAT32(quint32 cluster);
+    // Pure virtual methods to be implemented by derived classes
+    virtual QList<FileInfo> listRootDirectory() = 0;
+    virtual QList<FileInfo> listDirectory(const QString &path) = 0;
 
-private:
+protected:
     QFile m_file;
     QDataStream m_stream;
 
-    // Internal helper methods
+    // Common helper methods
     FileInfo parseDirectoryEntry(quint8 *entry, QString &longName);
     QString readLongFileName(quint8 *entry);
     bool isValidEntry(quint8 *entry);
     bool isDeletedEntry(quint8 *entry);
     bool isLongFileNameEntry(quint8 *entry);
-    quint16 readRootDirSectorFAT16();
-    quint32 readRootDirClusterFAT32();
     quint16 readBytesPerSector();
     quint8 readSectorsPerCluster();
     quint16 readReservedSectors();
     quint8 readNumberOfFATs();
     quint16 readRootEntryCount();
-    quint32 calculateRootDirOffsetFAT16();
-    quint32 calculateRootDirOffsetFAT32();
-    quint32 calculateClusterOffsetFAT16(quint16 cluster);
-    quint32 calculateClusterOffsetFAT32(quint32 cluster);
-    quint16 readNextClusterFAT16(quint16 cluster);
-    quint32 readNextClusterFAT32(quint32 cluster);
     QList<FileInfo> readDirectoryEntries(quint32 offset, quint32 maxSize);
+};
+
+// FAT16 specific filesystem implementation
+class QFAT16FileSystem : public QFATFileSystem
+{
+public:
+    QFAT16FileSystem(const QString &filePath);
+
+    // FAT16 specific methods
+    QList<FileInfo> listRootDirectory() override;
+    QList<FileInfo> listDirectory(const QString &path) override;
+    QList<FileInfo> listDirectory(quint16 cluster);
+
+private:
+    quint16 readRootDirSector();
+    quint32 calculateRootDirOffset();
+    quint32 calculateClusterOffset(quint16 cluster);
+    quint16 readNextCluster(quint16 cluster);
+};
+
+// FAT32 specific filesystem implementation
+class QFAT32FileSystem : public QFATFileSystem
+{
+public:
+    QFAT32FileSystem(const QString &filePath);
+
+    // FAT32 specific methods
+    QList<FileInfo> listRootDirectory() override;
+    QList<FileInfo> listDirectory(const QString &path) override;
+    QList<FileInfo> listDirectory(quint32 cluster);
+
+private:
+    quint32 readRootDirCluster();
+    quint32 calculateClusterOffset(quint32 cluster);
+    quint32 readNextCluster(quint32 cluster);
 };
 
 #endif

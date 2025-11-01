@@ -21,10 +21,10 @@ private slots:
 
 void TestQFATFileSystem::testListFilesFAT16()
 {
-    QFATFileSystem fs(TEST_FAT16_IMAGE_PATH);
+    QFAT16FileSystem fs(TEST_FAT16_IMAGE_PATH);
     QVERIFY(fs.open());
 
-    QList<FileInfo> files = fs.listFilesFAT16();
+    QList<FileInfo> files = fs.listRootDirectory();
 
     // Verify that we can read files
     QVERIFY(files.size() >= 0);
@@ -45,10 +45,10 @@ void TestQFATFileSystem::testListFilesFAT16()
 
 void TestQFATFileSystem::testListFilesFAT32()
 {
-    QFATFileSystem fs(TEST_FAT32_IMAGE_PATH);
+    QFAT32FileSystem fs(TEST_FAT32_IMAGE_PATH);
     QVERIFY(fs.open());
 
-    QList<FileInfo> files = fs.listFilesFAT32();
+    QList<FileInfo> files = fs.listRootDirectory();
 
     // Verify that we can read files
     QVERIFY(files.size() >= 0);
@@ -69,7 +69,7 @@ void TestQFATFileSystem::testListFilesFAT32()
 
 void TestQFATFileSystem::testListRootDirectoryFAT16()
 {
-    QFATFileSystem fs(TEST_FAT16_IMAGE_PATH);
+    QFAT16FileSystem fs(TEST_FAT16_IMAGE_PATH);
     QVERIFY(fs.open());
 
     QList<FileInfo> files = fs.listRootDirectory();
@@ -84,7 +84,7 @@ void TestQFATFileSystem::testListRootDirectoryFAT16()
 
 void TestQFATFileSystem::testListRootDirectoryFAT32()
 {
-    QFATFileSystem fs(TEST_FAT32_IMAGE_PATH);
+    QFAT32FileSystem fs(TEST_FAT32_IMAGE_PATH);
     QVERIFY(fs.open());
 
     QList<FileInfo> files = fs.listRootDirectory();
@@ -129,11 +129,11 @@ void TestQFATFileSystem::testFileInfoStructure()
 
 void TestQFATFileSystem::testListDirectoryFAT16()
 {
-    QFATFileSystem fs(TEST_FAT16_IMAGE_PATH);
+    QFAT16FileSystem fs(TEST_FAT16_IMAGE_PATH);
     QVERIFY(fs.open());
 
     // First, get root directory files to find a subdirectory
-    QList<FileInfo> rootFiles = fs.listFilesFAT16();
+    QList<FileInfo> rootFiles = fs.listRootDirectory();
 
     // Try to find a directory entry and list it
     bool foundDir = false;
@@ -144,7 +144,7 @@ void TestQFATFileSystem::testListDirectoryFAT16()
 
             // Try to list this directory using cluster number
             if (file.cluster < 0xFFF8) {
-                QList<FileInfo> dirFiles = fs.listDirectoryFAT16(static_cast<quint16>(file.cluster));
+                QList<FileInfo> dirFiles = fs.listDirectory(static_cast<quint16>(file.cluster));
                 qDebug() << "Directory" << file.name << "contains" << dirFiles.size() << "entries";
                 QVERIFY(dirFiles.size() >= 0); // Should have at least . and .. entries
             }
@@ -159,11 +159,11 @@ void TestQFATFileSystem::testListDirectoryFAT16()
 
 void TestQFATFileSystem::testListDirectoryFAT32()
 {
-    QFATFileSystem fs(TEST_FAT32_IMAGE_PATH);
+    QFAT32FileSystem fs(TEST_FAT32_IMAGE_PATH);
     QVERIFY(fs.open());
 
     // First, get root directory files to find a subdirectory
-    QList<FileInfo> rootFiles = fs.listFilesFAT32();
+    QList<FileInfo> rootFiles = fs.listRootDirectory();
 
     // Try to find a directory entry and list it
     bool foundDir = false;
@@ -174,7 +174,7 @@ void TestQFATFileSystem::testListDirectoryFAT32()
 
             // Try to list this directory using cluster number
             if (file.cluster < 0x0FFFFFF8) {
-                QList<FileInfo> dirFiles = fs.listDirectoryFAT32(file.cluster);
+                QList<FileInfo> dirFiles = fs.listDirectory(file.cluster);
                 qDebug() << "Directory" << file.name << "contains" << dirFiles.size() << "entries";
                 QVERIFY(dirFiles.size() >= 0); // Should have at least . and .. entries
             }
@@ -189,7 +189,7 @@ void TestQFATFileSystem::testListDirectoryFAT32()
 
 void TestQFATFileSystem::testListDirectoryPath()
 {
-    QFATFileSystem fs16(TEST_FAT16_IMAGE_PATH);
+    QFAT16FileSystem fs16(TEST_FAT16_IMAGE_PATH);
     QVERIFY(fs16.open());
 
     // Test root directory via path
@@ -199,7 +199,7 @@ void TestQFATFileSystem::testListDirectoryPath()
 
     fs16.close();
 
-    QFATFileSystem fs32(TEST_FAT32_IMAGE_PATH);
+    QFAT32FileSystem fs32(TEST_FAT32_IMAGE_PATH);
     QVERIFY(fs32.open());
 
     // Test root directory via path

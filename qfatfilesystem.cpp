@@ -6,9 +6,18 @@
 
 #include "qfatfilesystem.h"
 
+// ============================================================================
+// Base class: QFATFileSystem
+// ============================================================================
+
 QFATFileSystem::QFATFileSystem(const QString &filePath)
     : m_file(filePath)
 {
+}
+
+QFATFileSystem::~QFATFileSystem()
+{
+    close();
 }
 
 bool QFATFileSystem::open()
@@ -66,59 +75,6 @@ quint16 QFATFileSystem::readRootEntryCount()
     quint16 value;
     m_stream >> value;
     return value;
-}
-
-quint16 QFATFileSystem::readRootDirSectorFAT16()
-{
-    // For FAT16, calculate root directory sector
-    quint16 bytesPerSector = readBytesPerSector();
-    quint16 reservedSectors = readReservedSectors();
-    quint8 numFATs = readNumberOfFATs();
-
-    m_stream.device()->seek(0x16);
-    quint16 sectorsPerFAT;
-    m_stream >> sectorsPerFAT;
-
-    // Root directory starts after reserved sectors + FATs
-    return reservedSectors + (numFATs * sectorsPerFAT);
-}
-
-quint32 QFATFileSystem::readRootDirClusterFAT32()
-{
-    // For FAT32, root directory cluster is stored at offset 0x2C
-    m_stream.device()->seek(0x2C);
-    quint32 value;
-    m_stream >> value;
-    return value;
-}
-
-quint32 QFATFileSystem::calculateRootDirOffsetFAT16()
-{
-    quint16 rootDirSector = readRootDirSectorFAT16();
-    quint16 bytesPerSector = readBytesPerSector();
-    return rootDirSector * bytesPerSector;
-}
-
-quint32 QFATFileSystem::calculateRootDirOffsetFAT32()
-{
-    quint32 rootDirCluster = readRootDirClusterFAT32();
-    quint16 bytesPerSector = readBytesPerSector();
-    quint8 sectorsPerCluster = readSectorsPerCluster();
-    quint16 reservedSectors = readReservedSectors();
-    quint8 numFATs = readNumberOfFATs();
-
-    m_stream.device()->seek(0x24);
-    quint32 sectorsPerFAT;
-    m_stream >> sectorsPerFAT;
-
-    // Calculate data area start
-    quint32 dataAreaStart = reservedSectors + (numFATs * sectorsPerFAT);
-    quint32 dataAreaOffset = dataAreaStart * bytesPerSector;
-
-    // Cluster 2 is first data cluster, so root cluster starts at (cluster - 2) * cluster size
-    quint32 clusterOffset = (rootDirCluster - 2) * sectorsPerCluster * bytesPerSector;
-
-    return dataAreaOffset + clusterOffset;
 }
 
 bool QFATFileSystem::isLongFileNameEntry(quint8 *entry)
@@ -268,140 +224,6 @@ FileInfo QFATFileSystem::parseDirectoryEntry(quint8 *entry, QString &longName)
     return info;
 }
 
-QList<FileInfo> QFATFileSystem::listFilesFAT16()
-{
-    if (!m_file.isOpen()) {
-        qWarning() << "File not open";
-        return QList<FileInfo>();
-    }
-
-    quint32 rootDirOffset = calculateRootDirOffsetFAT16();
-    quint16 rootEntryCount = readRootEntryCount();
-
-    if (rootEntryCount == 0) {
-        rootEntryCount = 512; // Default if not specified
-    }
-
-    quint32 rootDirSize = rootEntryCount * 32; // Each entry is 32 bytes
-
-    return readDirectoryEntries(rootDirOffset, rootDirSize);
-}
-
-QList<FileInfo> QFATFileSystem::listFilesFAT32()
-{
-    if (!m_file.isOpen()) {
-        qWarning() << "File not open";
-        return QList<FileInfo>();
-    }
-
-    quint32 rootDirCluster = readRootDirClusterFAT32();
-    return listDirectoryFAT32(rootDirCluster);
-}
-
-QList<FileInfo> QFATFileSystem::listRootDirectory()
-{
-    // Try to detect FAT type and use appropriate method
-    // For now, we'll try FAT32 first, then FAT16
-    // In a real implementation, you'd detect based on BPB
-
-    // Check FAT32 by looking at root entry count
-    m_stream.device()->seek(0x11);
-    quint16 rootEntryCount;
-    m_stream >> rootEntryCount;
-
-    if (rootEntryCount == 0) {
-        // FAT32 has root entry count of 0
-        return listFilesFAT32();
-    } else {
-        // FAT16/12 has non-zero root entry count
-        return listFilesFAT16();
-    }
-}
-
-quint32 QFATFileSystem::calculateClusterOffsetFAT16(quint16 cluster)
-{
-    quint16 bytesPerSector = readBytesPerSector();
-    quint8 sectorsPerCluster = readSectorsPerCluster();
-    quint16 reservedSectors = readReservedSectors();
-    quint8 numFATs = readNumberOfFATs();
-
-    m_stream.device()->seek(0x16);
-    quint16 sectorsPerFAT;
-    m_stream >> sectorsPerFAT;
-
-    quint16 rootEntryCount = readRootEntryCount();
-    quint32 rootDirSectors = (rootEntryCount * 32 + bytesPerSector - 1) / bytesPerSector;
-
-    // Data area starts after reserved sectors + FATs + root directory
-    quint32 dataAreaStart = reservedSectors + (numFATs * sectorsPerFAT) + rootDirSectors;
-    quint32 dataAreaOffset = dataAreaStart * bytesPerSector;
-
-    // Cluster 2 is first data cluster, so cluster starts at (cluster - 2) * cluster size
-    quint32 clusterOffset = (cluster - 2) * sectorsPerCluster * bytesPerSector;
-
-    return dataAreaOffset + clusterOffset;
-}
-
-quint32 QFATFileSystem::calculateClusterOffsetFAT32(quint32 cluster)
-{
-    quint16 bytesPerSector = readBytesPerSector();
-    quint8 sectorsPerCluster = readSectorsPerCluster();
-    quint16 reservedSectors = readReservedSectors();
-    quint8 numFATs = readNumberOfFATs();
-
-    m_stream.device()->seek(0x24);
-    quint32 sectorsPerFAT;
-    m_stream >> sectorsPerFAT;
-
-    // Calculate data area start
-    quint32 dataAreaStart = reservedSectors + (numFATs * sectorsPerFAT);
-    quint32 dataAreaOffset = dataAreaStart * bytesPerSector;
-
-    // Cluster 2 is first data cluster, so cluster starts at (cluster - 2) * cluster size
-    quint32 clusterOffset = (cluster - 2) * sectorsPerCluster * bytesPerSector;
-
-    return dataAreaOffset + clusterOffset;
-}
-
-quint16 QFATFileSystem::readNextClusterFAT16(quint16 cluster)
-{
-    quint16 bytesPerSector = readBytesPerSector();
-    quint16 reservedSectors = readReservedSectors();
-    quint16 fatOffset = reservedSectors * bytesPerSector + cluster * 2; // 2 bytes per cluster
-
-    m_stream.device()->seek(fatOffset);
-    quint16 nextCluster;
-    m_stream >> nextCluster;
-
-    // Check for end of cluster chain (0xFFF8-0xFFFF)
-    if (nextCluster >= 0xFFF8) {
-        return 0; // End of chain
-    }
-
-    return nextCluster;
-}
-
-quint32 QFATFileSystem::readNextClusterFAT32(quint32 cluster)
-{
-    quint16 bytesPerSector = readBytesPerSector();
-    quint16 reservedSectors = readReservedSectors();
-    quint32 fatOffset = reservedSectors * bytesPerSector + cluster * 4; // 4 bytes per cluster
-
-    m_stream.device()->seek(fatOffset);
-    quint32 nextCluster;
-    m_stream >> nextCluster;
-
-    // Mask off high 4 bits (only use 28 bits for FAT32)
-    nextCluster &= 0x0FFFFFFF;
-
-    // Check for end of cluster chain (0x0FFFFFF8-0x0FFFFFFF)
-    if (nextCluster >= 0x0FFFFFF8) {
-        return 0; // End of chain
-    }
-
-    return nextCluster;
-}
-
 QList<FileInfo> QFATFileSystem::readDirectoryEntries(quint32 offset, quint32 maxSize)
 {
     QList<FileInfo> files;
@@ -463,7 +285,99 @@ QList<FileInfo> QFATFileSystem::readDirectoryEntries(quint32 offset, quint32 max
     return files;
 }
 
-QList<FileInfo> QFATFileSystem::listDirectoryFAT16(quint16 cluster)
+// ============================================================================
+// QFAT16FileSystem
+// ============================================================================
+
+QFAT16FileSystem::QFAT16FileSystem(const QString &filePath)
+    : QFATFileSystem(filePath)
+{
+}
+
+quint16 QFAT16FileSystem::readRootDirSector()
+{
+    // For FAT16, calculate root directory sector
+    quint16 bytesPerSector = readBytesPerSector();
+    quint16 reservedSectors = readReservedSectors();
+    quint8 numFATs = readNumberOfFATs();
+
+    m_stream.device()->seek(0x16);
+    quint16 sectorsPerFAT;
+    m_stream >> sectorsPerFAT;
+
+    // Root directory starts after reserved sectors + FATs
+    return reservedSectors + (numFATs * sectorsPerFAT);
+}
+
+quint32 QFAT16FileSystem::calculateRootDirOffset()
+{
+    quint16 rootDirSector = readRootDirSector();
+    quint16 bytesPerSector = readBytesPerSector();
+    return rootDirSector * bytesPerSector;
+}
+
+quint32 QFAT16FileSystem::calculateClusterOffset(quint16 cluster)
+{
+    quint16 bytesPerSector = readBytesPerSector();
+    quint8 sectorsPerCluster = readSectorsPerCluster();
+    quint16 reservedSectors = readReservedSectors();
+    quint8 numFATs = readNumberOfFATs();
+
+    m_stream.device()->seek(0x16);
+    quint16 sectorsPerFAT;
+    m_stream >> sectorsPerFAT;
+
+    quint16 rootEntryCount = readRootEntryCount();
+    quint32 rootDirSectors = (rootEntryCount * 32 + bytesPerSector - 1) / bytesPerSector;
+
+    // Data area starts after reserved sectors + FATs + root directory
+    quint32 dataAreaStart = reservedSectors + (numFATs * sectorsPerFAT) + rootDirSectors;
+    quint32 dataAreaOffset = dataAreaStart * bytesPerSector;
+
+    // Cluster 2 is first data cluster, so cluster starts at (cluster - 2) * cluster size
+    quint32 clusterOffset = (cluster - 2) * sectorsPerCluster * bytesPerSector;
+
+    return dataAreaOffset + clusterOffset;
+}
+
+quint16 QFAT16FileSystem::readNextCluster(quint16 cluster)
+{
+    quint16 bytesPerSector = readBytesPerSector();
+    quint16 reservedSectors = readReservedSectors();
+    quint16 fatOffset = reservedSectors * bytesPerSector + cluster * 2; // 2 bytes per cluster
+
+    m_stream.device()->seek(fatOffset);
+    quint16 nextCluster;
+    m_stream >> nextCluster;
+
+    // Check for end of cluster chain (0xFFF8-0xFFFF)
+    if (nextCluster >= 0xFFF8) {
+        return 0; // End of chain
+    }
+
+    return nextCluster;
+}
+
+QList<FileInfo> QFAT16FileSystem::listRootDirectory()
+{
+    if (!m_file.isOpen()) {
+        qWarning() << "File not open";
+        return QList<FileInfo>();
+    }
+
+    quint32 rootDirOffset = calculateRootDirOffset();
+    quint16 rootEntryCount = readRootEntryCount();
+
+    if (rootEntryCount == 0) {
+        rootEntryCount = 512; // Default if not specified
+    }
+
+    quint32 rootDirSize = rootEntryCount * 32; // Each entry is 32 bytes
+
+    return readDirectoryEntries(rootDirOffset, rootDirSize);
+}
+
+QList<FileInfo> QFAT16FileSystem::listDirectory(quint16 cluster)
 {
     QList<FileInfo> files;
 
@@ -481,7 +395,7 @@ QList<FileInfo> QFATFileSystem::listDirectoryFAT16(quint16 cluster)
 
     // Follow cluster chain
     while (currentCluster >= 2 && currentCluster < 0xFFF8 && totalSize < maxDirSize) {
-        quint32 clusterOffset = calculateClusterOffsetFAT16(currentCluster);
+        quint32 clusterOffset = calculateClusterOffset(currentCluster);
         QList<FileInfo> entries = readDirectoryEntries(clusterOffset, clusterSize);
 
         bool foundEnd = false;
@@ -498,7 +412,7 @@ QList<FileInfo> QFATFileSystem::listDirectoryFAT16(quint16 cluster)
         }
 
         totalSize += clusterSize;
-        currentCluster = readNextClusterFAT16(currentCluster);
+        currentCluster = readNextCluster(currentCluster);
         if (currentCluster == 0) {
             break;
         }
@@ -507,7 +421,93 @@ QList<FileInfo> QFATFileSystem::listDirectoryFAT16(quint16 cluster)
     return files;
 }
 
-QList<FileInfo> QFATFileSystem::listDirectoryFAT32(quint32 cluster)
+QList<FileInfo> QFAT16FileSystem::listDirectory(const QString &path)
+{
+    // For now, this is a placeholder for path-based directory listing
+    // Would need to implement path traversal to find directory cluster
+    // For simplicity, if path is empty or "/", list root directory
+    if (path.isEmpty() || path == "/" || path == "\\") {
+        return listRootDirectory();
+    }
+
+    // TODO: Implement path traversal to find and list subdirectories
+    QList<FileInfo> empty;
+    qWarning() << "Path-based directory listing not yet implemented:" << path;
+    return empty;
+}
+
+// ============================================================================
+// QFAT32FileSystem
+// ============================================================================
+
+QFAT32FileSystem::QFAT32FileSystem(const QString &filePath)
+    : QFATFileSystem(filePath)
+{
+}
+
+quint32 QFAT32FileSystem::readRootDirCluster()
+{
+    // For FAT32, root directory cluster is stored at offset 0x2C
+    m_stream.device()->seek(0x2C);
+    quint32 value;
+    m_stream >> value;
+    return value;
+}
+
+quint32 QFAT32FileSystem::calculateClusterOffset(quint32 cluster)
+{
+    quint16 bytesPerSector = readBytesPerSector();
+    quint8 sectorsPerCluster = readSectorsPerCluster();
+    quint16 reservedSectors = readReservedSectors();
+    quint8 numFATs = readNumberOfFATs();
+
+    m_stream.device()->seek(0x24);
+    quint32 sectorsPerFAT;
+    m_stream >> sectorsPerFAT;
+
+    // Calculate data area start
+    quint32 dataAreaStart = reservedSectors + (numFATs * sectorsPerFAT);
+    quint32 dataAreaOffset = dataAreaStart * bytesPerSector;
+
+    // Cluster 2 is first data cluster, so cluster starts at (cluster - 2) * cluster size
+    quint32 clusterOffset = (cluster - 2) * sectorsPerCluster * bytesPerSector;
+
+    return dataAreaOffset + clusterOffset;
+}
+
+quint32 QFAT32FileSystem::readNextCluster(quint32 cluster)
+{
+    quint16 bytesPerSector = readBytesPerSector();
+    quint16 reservedSectors = readReservedSectors();
+    quint32 fatOffset = reservedSectors * bytesPerSector + cluster * 4; // 4 bytes per cluster
+
+    m_stream.device()->seek(fatOffset);
+    quint32 nextCluster;
+    m_stream >> nextCluster;
+
+    // Mask off high 4 bits (only use 28 bits for FAT32)
+    nextCluster &= 0x0FFFFFFF;
+
+    // Check for end of cluster chain (0x0FFFFFF8-0x0FFFFFFF)
+    if (nextCluster >= 0x0FFFFFF8) {
+        return 0; // End of chain
+    }
+
+    return nextCluster;
+}
+
+QList<FileInfo> QFAT32FileSystem::listRootDirectory()
+{
+    if (!m_file.isOpen()) {
+        qWarning() << "File not open";
+        return QList<FileInfo>();
+    }
+
+    quint32 rootDirCluster = readRootDirCluster();
+    return listDirectory(rootDirCluster);
+}
+
+QList<FileInfo> QFAT32FileSystem::listDirectory(quint32 cluster)
 {
     QList<FileInfo> files;
 
@@ -525,7 +525,7 @@ QList<FileInfo> QFATFileSystem::listDirectoryFAT32(quint32 cluster)
 
     // Follow cluster chain
     while (currentCluster >= 2 && currentCluster < 0x0FFFFFF8 && totalSize < maxDirSize) {
-        quint32 clusterOffset = calculateClusterOffsetFAT32(currentCluster);
+        quint32 clusterOffset = calculateClusterOffset(currentCluster);
         QList<FileInfo> entries = readDirectoryEntries(clusterOffset, clusterSize);
 
         bool foundEnd = false;
@@ -542,7 +542,7 @@ QList<FileInfo> QFATFileSystem::listDirectoryFAT32(quint32 cluster)
         }
 
         totalSize += clusterSize;
-        currentCluster = readNextClusterFAT32(currentCluster);
+        currentCluster = readNextCluster(currentCluster);
         if (currentCluster == 0) {
             break;
         }
@@ -551,7 +551,7 @@ QList<FileInfo> QFATFileSystem::listDirectoryFAT32(quint32 cluster)
     return files;
 }
 
-QList<FileInfo> QFATFileSystem::listDirectory(const QString &path)
+QList<FileInfo> QFAT32FileSystem::listDirectory(const QString &path)
 {
     // For now, this is a placeholder for path-based directory listing
     // Would need to implement path traversal to find directory cluster
