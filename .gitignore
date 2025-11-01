@@ -53,3 +53,6 @@ compile_commands.json
 
 # CMake stuff
 build/
+
+# Other files
+.DS_Store
