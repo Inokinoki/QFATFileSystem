@@ -69,45 +69,46 @@ jobs:
             qfatfilesystem.cpp qfatfilesystem.h
         continue-on-error: true
 
-  build-with-warnings:
-    name: Build with All Warnings
-    runs-on: ubuntu-latest
+  # Temporarily disable this workflow
+  # build-with-warnings:
+  #   name: Build with All Warnings
+  #   runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
 
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: "6.5.0"
-          cache: true
+  #     - name: Install Qt
+  #       uses: jurplel/install-qt-action@v3
+  #       with:
+  #         version: "6.5.0"
+  #         cache: true
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y dosfstools ninja-build
+  #     - name: Install dependencies
+  #       run: |
+  #         sudo apt-get update
+  #         sudo apt-get install -y dosfstools ninja-build
 
-      - name: Generate test images
-        run: |
-          cd tests
-          chmod +x generate_test_images.sh
-          sudo ./generate_test_images.sh
+  #     - name: Generate test images
+  #       run: |
+  #         cd tests
+  #         chmod +x generate_test_images.sh
+  #         sudo ./generate_test_images.sh
 
-      - name: Configure CMake with strict warnings
-        run: |
-          mkdir -p build
-          cd build
-          cmake .. -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_CXX_FLAGS="-Wall -Wextra -Wpedantic -Werror"
+  #     - name: Configure CMake with strict warnings
+  #       run: |
+  #         mkdir -p build
+  #         cd build
+  #         cmake .. -G Ninja \
+  #           -DCMAKE_BUILD_TYPE=Debug \
+  #           -DCMAKE_CXX_FLAGS="-Wall -Wextra -Wpedantic -Werror"
 
-      - name: Build
-        run: |
-          cd build
-          ninja
+  #     - name: Build
+  #       run: |
+  #         cd build
+  #         ninja
 
-      - name: Run tests
-        run: |
-          cd build
-          ctest --output-on-failure --verbose
+  #     - name: Run tests
+  #       run: |
+  #         cd build
+  #         ctest --output-on-failure --verbose

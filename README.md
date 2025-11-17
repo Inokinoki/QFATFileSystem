@@ -1,7 +1,7 @@
 # QFATFileSystem
 
-[![Build and Test](https://github.com/Inokinok/QFATFileSystem/actions/workflows/test.yml/badge.svg)](https://github.com/Inokinok/QFATFileSystem/actions/workflows/test.yml)
-[![Extended Test Matrix](https://github.com/Inokinok/QFATFileSystem/actions/workflows/test-matrix.yml/badge.svg)](https://github.com/Inokinok/QFATFileSystem/actions/workflows/test-matrix.yml)
+[![Code Quality](https://github.com/Inokinoki/QFATFileSystem/actions/workflows/code-quality.yml/badge.svg)](https://github.com/Inokinoki/QFATFileSystem/actions/workflows/code-quality.yml)
+[![Build and Test](https://github.com/Inokinoki/QFATFileSystem/actions/workflows/test.yml/badge.svg)](https://github.com/Inokinoki/QFATFileSystem/actions/workflows/test.yml)
 
 A Qt-based library for reading FAT16 and FAT32 filesystem images.
 
