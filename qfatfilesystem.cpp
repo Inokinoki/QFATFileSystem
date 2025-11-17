@@ -125,9 +125,9 @@ QString QFATFileSystem::readLongFileName(quint8 *entry)
     return name;
 }
 
-FileInfo QFATFileSystem::parseDirectoryEntry(quint8 *entry, QString &longName)
+QFATFileInfo QFATFileSystem::parseDirectoryEntry(quint8 *entry, QString &longName)
 {
-    FileInfo info;
+    QFATFileInfo info;
 
     // Read 8.3 filename (remove trailing spaces)
     QString name8_3;
@@ -209,9 +209,9 @@ QDateTime QFATFileSystem::parseDateTime(quint16 date, quint16 time)
     return QDateTime(QDate(year, month, day), QTime(hour, minute, second));
 }
 
-QList<FileInfo> QFATFileSystem::readDirectoryEntries(quint32 offset, quint32 maxSize)
+QList<QFATFileInfo> QFATFileSystem::readDirectoryEntries(quint32 offset, quint32 maxSize)
 {
-    QList<FileInfo> files;
+    QList<QFATFileInfo> files;
 
     if (!m_device->isOpen() || m_device->atEnd()) {
         return files;
@@ -261,7 +261,7 @@ QList<FileInfo> QFATFileSystem::readDirectoryEntries(quint32 offset, quint32 max
         }
 
         if (isValidEntry(entry)) {
-            FileInfo info = parseDirectoryEntry(entry, currentLongName);
+            QFATFileInfo info = parseDirectoryEntry(entry, currentLongName);
             files.append(info);
             currentLongName.clear();
         }
@@ -343,11 +343,11 @@ quint16 QFAT16FileSystem::readNextCluster(quint16 cluster)
     return nextCluster;
 }
 
-QList<FileInfo> QFAT16FileSystem::listRootDirectory()
+QList<QFATFileInfo> QFAT16FileSystem::listRootDirectory()
 {
     if (!m_device->isOpen() || m_device->atEnd()) {
         qWarning() << "File not open";
-        return QList<FileInfo>();
+        return QList<QFATFileInfo>();
     }
 
     quint32 rootDirOffset = calculateRootDirOffset();
@@ -362,9 +362,9 @@ QList<FileInfo> QFAT16FileSystem::listRootDirectory()
     return readDirectoryEntries(rootDirOffset, rootDirSize);
 }
 
-QList<FileInfo> QFAT16FileSystem::listDirectory(quint16 cluster)
+QList<QFATFileInfo> QFAT16FileSystem::listDirectory(quint16 cluster)
 {
-    QList<FileInfo> files;
+    QList<QFATFileInfo> files;
 
     if (!m_device->isOpen() || cluster < 2) {
         return files;
@@ -381,10 +381,10 @@ QList<FileInfo> QFAT16FileSystem::listDirectory(quint16 cluster)
     // Follow cluster chain
     while (currentCluster >= 2 && currentCluster < 0xFFF8 && totalSize < maxDirSize) {
         quint32 clusterOffset = calculateClusterOffset(currentCluster);
-        QList<FileInfo> entries = readDirectoryEntries(clusterOffset, clusterSize);
+        QList<QFATFileInfo> entries = readDirectoryEntries(clusterOffset, clusterSize);
 
         bool foundEnd = false;
-        for (const FileInfo &entry : entries) {
+        for (const QFATFileInfo &entry : entries) {
             if (entry.name.isEmpty() && entry.size == 0) {
                 foundEnd = true;
                 break;
@@ -406,7 +406,7 @@ QList<FileInfo> QFAT16FileSystem::listDirectory(quint16 cluster)
     return files;
 }
 
-QList<FileInfo> QFAT16FileSystem::listDirectory(const QString &path)
+QList<QFATFileInfo> QFAT16FileSystem::listDirectory(const QString &path)
 {
     // For now, this is a placeholder for path-based directory listing
     // Would need to implement path traversal to find directory cluster
@@ -416,7 +416,7 @@ QList<FileInfo> QFAT16FileSystem::listDirectory(const QString &path)
     }
 
     // TODO: Implement path traversal to find and list subdirectories
-    QList<FileInfo> empty;
+    QList<QFATFileInfo> empty;
     qWarning() << "Path-based directory listing not yet implemented:" << path;
     return empty;
 }
@@ -481,20 +481,20 @@ quint32 QFAT32FileSystem::readNextCluster(quint32 cluster)
     return nextCluster;
 }
 
-QList<FileInfo> QFAT32FileSystem::listRootDirectory()
+QList<QFATFileInfo> QFAT32FileSystem::listRootDirectory()
 {
     if (!m_device->isOpen() || m_device->atEnd()) {
         qWarning() << "Device not open";
-        return QList<FileInfo>();
+        return QList<QFATFileInfo>();
     }
 
     quint32 rootDirCluster = readRootDirCluster();
     return listDirectory(rootDirCluster);
 }
 
-QList<FileInfo> QFAT32FileSystem::listDirectory(quint32 cluster)
+QList<QFATFileInfo> QFAT32FileSystem::listDirectory(quint32 cluster)
 {
-    QList<FileInfo> files;
+    QList<QFATFileInfo> files;
 
     if (!m_device->isOpen() || cluster < 2) {
         return files;
@@ -511,10 +511,10 @@ QList<FileInfo> QFAT32FileSystem::listDirectory(quint32 cluster)
     // Follow cluster chain
     while (currentCluster >= 2 && currentCluster < 0x0FFFFFF8 && totalSize < maxDirSize) {
         quint32 clusterOffset = calculateClusterOffset(currentCluster);
-        QList<FileInfo> entries = readDirectoryEntries(clusterOffset, clusterSize);
+        QList<QFATFileInfo> entries = readDirectoryEntries(clusterOffset, clusterSize);
 
         bool foundEnd = false;
-        for (const FileInfo &entry : entries) {
+        for (const QFATFileInfo &entry : entries) {
             if (entry.name.isEmpty() && entry.size == 0) {
                 foundEnd = true;
                 break;
@@ -536,7 +536,7 @@ QList<FileInfo> QFAT32FileSystem::listDirectory(quint32 cluster)
     return files;
 }
 
-QList<FileInfo> QFAT32FileSystem::listDirectory(const QString &path)
+QList<QFATFileInfo> QFAT32FileSystem::listDirectory(const QString &path)
 {
     // For now, this is a placeholder for path-based directory listing
     // Would need to implement path traversal to find directory cluster
@@ -551,7 +551,7 @@ QList<FileInfo> QFAT32FileSystem::listDirectory(const QString &path)
     }
 
     // TODO: Implement path traversal to find and list subdirectories
-    QList<FileInfo> empty;
+    QList<QFATFileInfo> empty;
     qWarning() << "Path-based directory listing not yet implemented:" << path;
     return empty;
 }

@@ -7,7 +7,7 @@
 #include <QList>
 #include <QString>
 
-struct FileInfo {
+struct QFATFileInfo {
     QString name;
     QString longName;
     bool isDirectory;
@@ -17,7 +17,7 @@ struct FileInfo {
     quint16 attributes;
     quint32 cluster; // First cluster number (for FAT16, only low 16 bits are used)
 
-    FileInfo()
+    QFATFileInfo()
         : isDirectory(false)
         , size(0)
         , attributes(0)
@@ -34,15 +34,15 @@ public:
     virtual ~QFATFileSystem();
 
     // Pure virtual methods to be implemented by derived classes
-    virtual QList<FileInfo> listRootDirectory() = 0;
-    virtual QList<FileInfo> listDirectory(const QString &path) = 0;
+    virtual QList<QFATFileInfo> listRootDirectory() = 0;
+    virtual QList<QFATFileInfo> listDirectory(const QString &path) = 0;
 
 protected:
     QDataStream m_stream;
     QIODevice *m_device;
 
     // Common helper methods
-    FileInfo parseDirectoryEntry(quint8 *entry, QString &longName);
+    QFATFileInfo parseDirectoryEntry(quint8 *entry, QString &longName);
     QString readLongFileName(quint8 *entry);
     bool isValidEntry(quint8 *entry);
     bool isDeletedEntry(quint8 *entry);
@@ -53,7 +53,7 @@ protected:
     quint16 readReservedSectors();
     quint8 readNumberOfFATs();
     quint16 readRootEntryCount();
-    QList<FileInfo> readDirectoryEntries(quint32 offset, quint32 maxSize);
+    QList<QFATFileInfo> readDirectoryEntries(quint32 offset, quint32 maxSize);
 };
 
 // FAT16 specific filesystem implementation
@@ -63,9 +63,9 @@ public:
     QFAT16FileSystem(QIODevice *device);
 
     // FAT16 specific methods
-    QList<FileInfo> listRootDirectory() override;
-    QList<FileInfo> listDirectory(const QString &path) override;
-    QList<FileInfo> listDirectory(quint16 cluster);
+    QList<QFATFileInfo> listRootDirectory() override;
+    QList<QFATFileInfo> listDirectory(const QString &path) override;
+    QList<QFATFileInfo> listDirectory(quint16 cluster);
 
 private:
     quint16 readRootDirSector();
@@ -81,9 +81,9 @@ public:
     QFAT32FileSystem(QIODevice *device);
 
     // FAT32 specific methods
-    QList<FileInfo> listRootDirectory() override;
-    QList<FileInfo> listDirectory(const QString &path) override;
-    QList<FileInfo> listDirectory(quint32 cluster);
+    QList<QFATFileInfo> listRootDirectory() override;
+    QList<QFATFileInfo> listDirectory(const QString &path) override;
+    QList<QFATFileInfo> listDirectory(quint32 cluster);
 
 private:
     quint32 readRootDirCluster();

@@ -25,8 +25,8 @@ private slots:
     void testLongFilenames();
 
 private:
-    bool findFileByName(const QList<FileInfo> &files, const QString &name);
-    FileInfo getFileByName(const QList<FileInfo> &files, const QString &name);
+    bool findFileByName(const QList<QFATFileInfo> &files, const QString &name);
+    QFATFileInfo getFileByName(const QList<QFATFileInfo> &files, const QString &name);
 };
 
 void TestQFATFileSystem::testListFilesFAT16()
@@ -35,7 +35,7 @@ void TestQFATFileSystem::testListFilesFAT16()
     QVERIFY(file.open(QIODevice::ReadOnly));
     QFAT16FileSystem fs(&file);
 
-    QList<FileInfo> files = fs.listRootDirectory();
+    QList<QFATFileInfo> files = fs.listRootDirectory();
 
     // Verify that we can read files
     QVERIFY(files.size() >= 0);
@@ -43,7 +43,7 @@ void TestQFATFileSystem::testListFilesFAT16()
     qDebug() << "FAT16: Found" << files.size() << "files/directories";
 
     // Print file information for debugging
-    for (const FileInfo &file : files) {
+    for (const QFATFileInfo &file : files) {
         qDebug() << "File:" << file.longName << "(" << file.name << ")"
                  << "Size:" << file.size << "Directory:" << file.isDirectory;
         if (!file.modified.isNull()) {
@@ -58,7 +58,7 @@ void TestQFATFileSystem::testListFilesFAT32()
     QVERIFY(file.open(QIODevice::ReadOnly));
     QFAT32FileSystem fs(&file);
 
-    QList<FileInfo> files = fs.listRootDirectory();
+    QList<QFATFileInfo> files = fs.listRootDirectory();
 
     // Verify that we can read files
     QVERIFY(files.size() >= 0);
@@ -66,7 +66,7 @@ void TestQFATFileSystem::testListFilesFAT32()
     qDebug() << "FAT32: Found" << files.size() << "files/directories";
 
     // Print file information for debugging
-    for (const FileInfo &file : files) {
+    for (const QFATFileInfo &file : files) {
         qDebug() << "File:" << file.longName << "(" << file.name << ")"
                  << "Size:" << file.size << "Directory:" << file.isDirectory;
         if (!file.modified.isNull()) {
@@ -81,7 +81,7 @@ void TestQFATFileSystem::testListRootDirectoryFAT16()
     QVERIFY(file.open(QIODevice::ReadOnly));
     QFAT16FileSystem fs(&file);
 
-    QList<FileInfo> files = fs.listRootDirectory();
+    QList<QFATFileInfo> files = fs.listRootDirectory();
 
     // Verify that the auto-detection works
     QVERIFY(files.size() >= 0);
@@ -95,7 +95,7 @@ void TestQFATFileSystem::testListRootDirectoryFAT32()
     QVERIFY(file.open(QIODevice::ReadOnly));
     QFAT32FileSystem fs(&file);
 
-    QList<FileInfo> files = fs.listRootDirectory();
+    QList<QFATFileInfo> files = fs.listRootDirectory();
 
     // Verify that the auto-detection works
     QVERIFY(files.size() >= 0);
@@ -105,8 +105,8 @@ void TestQFATFileSystem::testListRootDirectoryFAT32()
 
 void TestQFATFileSystem::testFileInfoStructure()
 {
-    // Test that FileInfo structure initializes correctly
-    FileInfo info;
+    // Test that QFATFileInfo structure initializes correctly
+    QFATFileInfo info;
 
     QVERIFY(info.name.isEmpty());
     QVERIFY(info.longName.isEmpty());
@@ -140,18 +140,18 @@ void TestQFATFileSystem::testListDirectoryFAT16()
     QFAT16FileSystem fs(&file);
 
     // First, get root directory files to find a subdirectory
-    QList<FileInfo> rootFiles = fs.listRootDirectory();
+    QList<QFATFileInfo> rootFiles = fs.listRootDirectory();
 
     // Try to find a directory entry and list it
     bool foundDir = false;
-    for (const FileInfo &file : rootFiles) {
+    for (const QFATFileInfo &file : rootFiles) {
         if (file.isDirectory && file.name != "." && file.name != ".." && file.cluster >= 2) {
             qDebug() << "Found directory:" << file.name << "at cluster" << file.cluster;
             foundDir = true;
 
             // Try to list this directory using cluster number
             if (file.cluster < 0xFFF8) {
-                QList<FileInfo> dirFiles = fs.listDirectory(static_cast<quint16>(file.cluster));
+                QList<QFATFileInfo> dirFiles = fs.listDirectory(static_cast<quint16>(file.cluster));
                 qDebug() << "Directory" << file.name << "contains" << dirFiles.size() << "entries";
                 QVERIFY(dirFiles.size() >= 0); // Should have at least . and .. entries
             }
@@ -169,18 +169,18 @@ void TestQFATFileSystem::testListDirectoryFAT32()
     QFAT32FileSystem fs(&file);
 
     // First, get root directory files to find a subdirectory
-    QList<FileInfo> rootFiles = fs.listRootDirectory();
+    QList<QFATFileInfo> rootFiles = fs.listRootDirectory();
 
     // Try to find a directory entry and list it
     bool foundDir = false;
-    for (const FileInfo &file : rootFiles) {
+    for (const QFATFileInfo &file : rootFiles) {
         if (file.isDirectory && file.name != "." && file.name != ".." && file.cluster >= 2) {
             qDebug() << "Found directory:" << file.name << "at cluster" << file.cluster;
             foundDir = true;
 
             // Try to list this directory using cluster number
             if (file.cluster < 0x0FFFFFF8) {
-                QList<FileInfo> dirFiles = fs.listDirectory(file.cluster);
+                QList<QFATFileInfo> dirFiles = fs.listDirectory(file.cluster);
                 qDebug() << "Directory" << file.name << "contains" << dirFiles.size() << "entries";
                 QVERIFY(dirFiles.size() >= 0); // Should have at least . and .. entries
             }
@@ -198,7 +198,7 @@ void TestQFATFileSystem::testListDirectoryPath()
     QFAT16FileSystem fs16(&file16);
 
     // Test root directory via path
-    QList<FileInfo> rootFiles = fs16.listDirectory("/");
+    QList<QFATFileInfo> rootFiles = fs16.listDirectory("/");
     QVERIFY(rootFiles.size() >= 0);
     qDebug() << "Root directory via path contains" << rootFiles.size() << "entries";
 
@@ -207,15 +207,15 @@ void TestQFATFileSystem::testListDirectoryPath()
     QFAT32FileSystem fs32(&file32);
 
     // Test root directory via path
-    QList<FileInfo> rootFiles32 = fs32.listDirectory("/");
+    QList<QFATFileInfo> rootFiles32 = fs32.listDirectory("/");
     QVERIFY(rootFiles32.size() >= 0);
     qDebug() << "Root directory via path (FAT32) contains" << rootFiles32.size() << "entries";
 }
 
-bool TestQFATFileSystem::findFileByName(const QList<FileInfo> &files, const QString &name)
+bool TestQFATFileSystem::findFileByName(const QList<QFATFileInfo> &files, const QString &name)
 {
     QString upperName = name.toUpper();
-    for (const FileInfo &file : files) {
+    for (const QFATFileInfo &file : files) {
         // Check exact match first
         if (file.name.toUpper() == upperName || file.longName.toUpper() == upperName) {
             return true;
@@ -242,10 +242,10 @@ bool TestQFATFileSystem::findFileByName(const QList<FileInfo> &files, const QStr
     return false;
 }
 
-FileInfo TestQFATFileSystem::getFileByName(const QList<FileInfo> &files, const QString &name)
+QFATFileInfo TestQFATFileSystem::getFileByName(const QList<QFATFileInfo> &files, const QString &name)
 {
     QString upperName = name.toUpper();
-    for (const FileInfo &file : files) {
+    for (const QFATFileInfo &file : files) {
         // Check exact match first
         if (file.name.toUpper() == upperName || file.longName.toUpper() == upperName) {
             return file;
@@ -268,7 +268,7 @@ FileInfo TestQFATFileSystem::getFileByName(const QList<FileInfo> &files, const Q
             }
         }
     }
-    return FileInfo();
+    return QFATFileInfo();
 }
 
 void TestQFATFileSystem::testRootContentFAT16()
@@ -277,7 +277,7 @@ void TestQFATFileSystem::testRootContentFAT16()
     QVERIFY(file.open(QIODevice::ReadOnly));
     QFAT16FileSystem fs(&file);
 
-    QList<FileInfo> files = fs.listRootDirectory();
+    QList<QFATFileInfo> files = fs.listRootDirectory();
 
     // Verify expected files exist
     QVERIFY2(findFileByName(files, "hello.txt"), "hello.txt not found");
@@ -293,10 +293,10 @@ void TestQFATFileSystem::testRootContentFAT16()
     QVERIFY2(findFileByName(files, "Documents"), "Documents not found");
 
     // Verify directory flags
-    FileInfo subdir1 = getFileByName(files, "subdir1");
+    QFATFileInfo subdir1 = getFileByName(files, "subdir1");
     QVERIFY2(subdir1.isDirectory, "subdir1 should be a directory");
 
-    FileInfo helloFile = getFileByName(files, "hello.txt");
+    QFATFileInfo helloFile = getFileByName(files, "hello.txt");
     QVERIFY2(!helloFile.isDirectory, "hello.txt should not be a directory");
 
     qDebug() << "FAT16 root content validation passed";
@@ -308,7 +308,7 @@ void TestQFATFileSystem::testRootContentFAT32()
     QVERIFY(file.open(QIODevice::ReadOnly));
     QFAT32FileSystem fs(&file);
 
-    QList<FileInfo> files = fs.listRootDirectory();
+    QList<QFATFileInfo> files = fs.listRootDirectory();
 
     // Verify expected files exist
     QVERIFY2(findFileByName(files, "hello.txt"), "hello.txt not found");
@@ -324,10 +324,10 @@ void TestQFATFileSystem::testRootContentFAT32()
     QVERIFY2(findFileByName(files, "Documents"), "Documents not found");
 
     // Verify directory flags
-    FileInfo subdir2 = getFileByName(files, "subdir2");
+    QFATFileInfo subdir2 = getFileByName(files, "subdir2");
     QVERIFY2(subdir2.isDirectory, "subdir2 should be a directory");
 
-    FileInfo testFile = getFileByName(files, "test.txt");
+    QFATFileInfo testFile = getFileByName(files, "test.txt");
     QVERIFY2(!testFile.isDirectory, "test.txt should not be a directory");
 
     qDebug() << "FAT32 root content validation passed";
@@ -340,13 +340,13 @@ void TestQFATFileSystem::testSubdirectoryContentFAT16()
     QFAT16FileSystem fs(&file);
 
     // Get root directory to find subdir1
-    QList<FileInfo> rootFiles = fs.listRootDirectory();
-    FileInfo subdir1 = getFileByName(rootFiles, "subdir1");
+    QList<QFATFileInfo> rootFiles = fs.listRootDirectory();
+    QFATFileInfo subdir1 = getFileByName(rootFiles, "subdir1");
     QVERIFY2(subdir1.isDirectory, "subdir1 should be a directory");
     QVERIFY2(subdir1.cluster >= 2, "subdir1 should have a valid cluster");
 
     // List subdir1 contents
-    QList<FileInfo> subdir1Files = fs.listDirectory(static_cast<quint16>(subdir1.cluster));
+    QList<QFATFileInfo> subdir1Files = fs.listDirectory(static_cast<quint16>(subdir1.cluster));
 
     // Verify expected files in subdir1
     QVERIFY2(findFileByName(subdir1Files, "file1.txt"), "file1.txt not found in subdir1");
@@ -354,7 +354,7 @@ void TestQFATFileSystem::testSubdirectoryContentFAT16()
     QVERIFY2(findFileByName(subdir1Files, "nested"), "nested directory not found in subdir1");
 
     // Verify nested is a directory
-    FileInfo nested = getFileByName(subdir1Files, "nested");
+    QFATFileInfo nested = getFileByName(subdir1Files, "nested");
     QVERIFY2(nested.isDirectory, "nested should be a directory");
 
     qDebug() << "FAT16 subdirectory content validation passed";
@@ -367,13 +367,13 @@ void TestQFATFileSystem::testSubdirectoryContentFAT32()
     QFAT32FileSystem fs(&file);
 
     // Get root directory to find Documents
-    QList<FileInfo> rootFiles = fs.listRootDirectory();
-    FileInfo docsDir = getFileByName(rootFiles, "Documents");
+    QList<QFATFileInfo> rootFiles = fs.listRootDirectory();
+    QFATFileInfo docsDir = getFileByName(rootFiles, "Documents");
     QVERIFY2(docsDir.isDirectory, "Documents should be a directory");
     QVERIFY2(docsDir.cluster >= 2, "Documents should have a valid cluster");
 
     // List Documents contents
-    QList<FileInfo> docFiles = fs.listDirectory(docsDir.cluster);
+    QList<QFATFileInfo> docFiles = fs.listDirectory(docsDir.cluster);
 
     // Verify expected files in Documents
     QVERIFY2(findFileByName(docFiles, "doc1.txt"), "doc1.txt not found in Documents");
@@ -389,18 +389,18 @@ void TestQFATFileSystem::testFileSizes()
     QVERIFY(file16.open(QIODevice::ReadOnly));
     QFAT16FileSystem fs16(&file16);
 
-    QList<FileInfo> files16 = fs16.listRootDirectory();
+    QList<QFATFileInfo> files16 = fs16.listRootDirectory();
 
     // Check empty.txt is actually empty
-    FileInfo emptyFile = getFileByName(files16, "empty.txt");
+    QFATFileInfo emptyFile = getFileByName(files16, "empty.txt");
     QCOMPARE(emptyFile.size, quint32(0));
 
     // Check largefile.bin has expected size (100 KB)
-    FileInfo largeFile = getFileByName(files16, "largefile.bin");
+    QFATFileInfo largeFile = getFileByName(files16, "largefile.bin");
     QCOMPARE(largeFile.size, quint32(102400));
 
     // Check binary.dat has expected size (10 KB)
-    FileInfo binaryFile = getFileByName(files16, "binary.dat");
+    QFATFileInfo binaryFile = getFileByName(files16, "binary.dat");
     QCOMPARE(binaryFile.size, quint32(10240));
 
     // Test FAT32
@@ -408,14 +408,14 @@ void TestQFATFileSystem::testFileSizes()
     QVERIFY(file32.open(QIODevice::ReadOnly));
     QFAT32FileSystem fs32(&file32);
 
-    QList<FileInfo> files32 = fs32.listRootDirectory();
+    QList<QFATFileInfo> files32 = fs32.listRootDirectory();
 
     // Check empty.txt is actually empty
-    FileInfo emptyFile32 = getFileByName(files32, "empty.txt");
+    QFATFileInfo emptyFile32 = getFileByName(files32, "empty.txt");
     QCOMPARE(emptyFile32.size, quint32(0));
 
     // Check largefile.bin has expected size (100 KB)
-    FileInfo largeFile32 = getFileByName(files32, "largefile.bin");
+    QFATFileInfo largeFile32 = getFileByName(files32, "largefile.bin");
     QCOMPARE(largeFile32.size, quint32(102400));
 
     qDebug() << "File size validation passed";
@@ -428,7 +428,7 @@ void TestQFATFileSystem::testLongFilenames()
     QVERIFY(file16.open(QIODevice::ReadOnly));
     QFAT16FileSystem fs16(&file16);
 
-    QList<FileInfo> files16 = fs16.listRootDirectory();
+    QList<QFATFileInfo> files16 = fs16.listRootDirectory();
 
     // Check for long filename
     QVERIFY2(findFileByName(files16, "this_is_a_long_filename.txt"), "Long filename not found in FAT16");
@@ -438,7 +438,7 @@ void TestQFATFileSystem::testLongFilenames()
     QVERIFY(file32.open(QIODevice::ReadOnly));
     QFAT32FileSystem fs32(&file32);
 
-    QList<FileInfo> files32 = fs32.listRootDirectory();
+    QList<QFATFileInfo> files32 = fs32.listRootDirectory();
 
     // Check for long filename
     QVERIFY2(findFileByName(files32, "this_is_a_long_filename.txt"), "Long filename not found in FAT32");
