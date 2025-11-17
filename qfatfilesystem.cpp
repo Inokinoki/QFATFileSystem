@@ -446,7 +446,7 @@ quint32 QFAT32FileSystem::calculateClusterOffset(quint32 cluster)
     quint16 reservedSectors = readReservedSectors();
     quint8 numFATs = readNumberOfFATs();
 
-    m_stream.device()->seek(BPB_SECTORS_PER_FAT_OFFSET);
+    m_stream.device()->seek(BPB_SECTORS_PER_FAT32_OFFSET);
     quint32 sectorsPerFAT;
     m_stream >> sectorsPerFAT;
 

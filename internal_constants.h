@@ -12,7 +12,8 @@
 #define BPB_RESERVED_SECTORS_OFFSET 0x0E
 #define BPB_NUMBER_OF_FATS_OFFSET 0x10
 #define BPB_ROOT_ENTRY_COUNT_OFFSET 0x11
-#define BPB_SECTORS_PER_FAT_OFFSET 0x16
+#define BPB_SECTORS_PER_FAT_OFFSET 0x16 // FAT12/FAT16 only (2 bytes)
+#define BPB_SECTORS_PER_FAT32_OFFSET 0x24 // FAT32 (4 bytes)
 #define BPB_ROOT_DIRECTORY_CLUSTER_OFFSET 0x2C
 
 // ============================================================================
