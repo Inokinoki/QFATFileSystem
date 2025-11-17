@@ -1,0 +1,113 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  clang-format:
+    name: Check Code Formatting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format
+
+      - name: Check formatting
+        run: |
+          find . -name "*.cpp" -o -name "*.h" | grep -v build | grep -v ".cache" | \
+          xargs clang-format --dry-run --Werror -style=file
+        continue-on-error: true
+
+      - name: Show formatting differences
+        if: failure()
+        run: |
+          echo "Code formatting issues found. Run 'clang-format -i' on the files to fix."
+          find . -name "*.cpp" -o -name "*.h" | grep -v build | grep -v ".cache" | \
+          xargs clang-format --dry-run -style=file
+
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: "6.5.0"
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-tidy cppcheck
+
+      - name: Configure CMake with compile_commands.json
+        run: |
+          mkdir -p build
+          cd build
+          cmake .. -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Run cppcheck
+        run: |
+          cppcheck --enable=all --inconclusive --std=c++11 \
+            --suppress=missingIncludeSystem \
+            --suppress=unusedFunction \
+            --suppress=unmatchedSuppression \
+            --error-exitcode=0 \
+            qfatfilesystem.cpp qfatfilesystem.h
+        continue-on-error: true
+
+  build-with-warnings:
+    name: Build with All Warnings
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: "6.5.0"
+          cache: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dosfstools ninja-build
+
+      - name: Generate test images
+        run: |
+          cd tests
+          chmod +x generate_test_images.sh
+          sudo ./generate_test_images.sh
+
+      - name: Configure CMake with strict warnings
+        run: |
+          mkdir -p build
+          cd build
+          cmake .. -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-Wall -Wextra -Wpedantic -Werror"
+
+      - name: Build
+        run: |
+          cd build
+          ninja
+
+      - name: Run tests
+        run: |
+          cd build
+          ctest --output-on-failure --verbose
