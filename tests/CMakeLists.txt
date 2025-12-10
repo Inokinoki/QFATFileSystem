@@ -31,13 +31,39 @@ add_custom_command(
     COMMENT "Copying test images to build directory..."
 )
 
-# Add test executable
-add_executable(test_qfatfilesystem_read_image test_qfatfilesystem_read_image.cpp)
+# Add test executables
+add_executable(test_common test_common.cpp)
+add_executable(test_fat16_read test_fat16_read.cpp)
+add_executable(test_fat32_read test_fat32_read.cpp)
+add_executable(test_fat16_write test_fat16_write.cpp)
+add_executable(test_fat32_write test_fat32_write.cpp)
+add_executable(test_fat16_directories test_fat16_directories.cpp)
+add_executable(test_fat32_directories test_fat32_directories.cpp)
 
-# Make test depend on image generation
-add_dependencies(test_qfatfilesystem_read_image generate_test_images)
+# Make tests depend on image generation
+add_dependencies(test_common generate_test_images)
+add_dependencies(test_fat16_read generate_test_images)
+add_dependencies(test_fat32_read generate_test_images)
+add_dependencies(test_fat16_write generate_test_images)
+add_dependencies(test_fat32_write generate_test_images)
+add_dependencies(test_fat16_directories generate_test_images)
+add_dependencies(test_fat32_directories generate_test_images)
 
-# Add test target
-add_test(TestQFATFileSystemReadImage test_qfatfilesystem_read_image)
-target_link_libraries(test_qfatfilesystem_read_image ${test_libraries})
+# Add test targets
+add_test(TestCommonOperations test_common)
+add_test(TestFAT16ReadOperations test_fat16_read)
+add_test(TestFAT32ReadOperations test_fat32_read)
+add_test(TestFAT16WriteOperations test_fat16_write)
+add_test(TestFAT32WriteOperations test_fat32_write)
+add_test(TestFAT16DirectoryOperations test_fat16_directories)
+add_test(TestFAT32DirectoryOperations test_fat32_directories)
+
+# Link test libraries
+target_link_libraries(test_common ${test_libraries})
+target_link_libraries(test_fat16_read ${test_libraries})
+target_link_libraries(test_fat32_read ${test_libraries})
+target_link_libraries(test_fat16_write ${test_libraries})
+target_link_libraries(test_fat32_write ${test_libraries})
+target_link_libraries(test_fat16_directories ${test_libraries})
+target_link_libraries(test_fat32_directories ${test_libraries})
 
