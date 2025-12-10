@@ -66,7 +66,7 @@
 #define ENTRY_LFN_PART1_LENGTH 10
 #define ENTRY_LFN_PART2_OFFSET 0x0E
 #define ENTRY_LFN_PART2_LENGTH 12
-#define ENTRY_LFN_PART3_OFFSET 0x1B
+#define ENTRY_LFN_PART3_OFFSET 0x1C
 #define ENTRY_LFN_PART3_LENGTH 4
 
 // ============================================================================
