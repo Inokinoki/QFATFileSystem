@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QFile>
 #include <QList>
+#include <QMap>
 #include <QSharedPointer>
 #include <QScopedPointer>
 #include <QString>
@@ -150,6 +151,10 @@ private:
     bool createDirectoryEntry(quint32 dirOffset, const QFATFileInfo &fileInfo);
     bool deleteDirectoryEntry(const QString &path);
     bool isDirectoryEmpty(quint16 cluster);
+
+    // In-memory mapping for files written without LFN entries
+    // Maps long name (e.g., "testfile0.txt") to short name (e.g., "TESTF~31.TXT")
+    QMap<QString, QString> m_longToShortNameMap;
 };
 
 // FAT32 specific filesystem implementation
@@ -200,6 +205,10 @@ private:
     bool createDirectoryEntry(quint32 dirOffset, const QFATFileInfo &fileInfo);
     bool deleteDirectoryEntry(const QString &path);
     bool isDirectoryEmpty(quint32 cluster);
+
+    // In-memory mapping for files written without LFN entries
+    // Maps long name (e.g., "testfile0.txt") to short name (e.g., "TESTF~31.TXT")
+    QMap<QString, QString> m_longToShortNameMap;
 };
 
 #endif

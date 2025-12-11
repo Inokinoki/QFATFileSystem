@@ -86,6 +86,7 @@ QFATFileInfo QFATFileSystem::findInDirectory(const QList<QFATFileInfo> &entries,
 
         // Match by exact name (short or long)
         if (entryShortName == upperName || entryLongName == upperName) {
+            qDebug() << "[findInDirectory] Matched" << name << "to short:" << entry.name << "long:" << entry.longName;
             return entry;
         }
     }
@@ -175,7 +176,11 @@ QFATFileInfo QFATFileSystem::findInDirectory(const QList<QFATFileInfo> &entries,
         // This works for entries without tails (like "EMPTY_.TXT")
         // Entries with tails (like "TESTFI~1.TXT") cannot be reliably matched
         // without LFN entries, as we can't distinguish between "testfile0.txt" and "testfile1.txt"
-        if (entryBase == searchBase && !entryBase.contains("~")) {
+        //
+        // IMPORTANT: Only match if the search name did NOT need truncation.
+        // If "testfile0.txt" truncates to "TESTFI", we should NOT match an existing "TESTFI.TXT"
+        // because they are different files.
+        if (entryBase == searchBase && !entryBase.contains("~") && !needsTruncation) {
             return entry;
         }
     }
@@ -791,6 +796,13 @@ QFATFileInfo QFAT16FileSystem::findFileByPath(const QString &path, QFATError &er
     for (int i = 0; i < parts.size(); i++) {
         QFATFileInfo found = findInDirectory(currentDir, parts[i]);
 
+        // If not found by normal means, check the in-memory mapping for files written without LFN
+        if (found.name.isEmpty() && m_longToShortNameMap.contains(parts[i].toLower())) {
+            QString shortName = m_longToShortNameMap[parts[i].toLower()];
+            qDebug() << "[findFileByPath] Using mapping for" << parts[i] << "->" << shortName;
+            found = findInDirectory(currentDir, shortName);
+        }
+
         if (found.name.isEmpty()) {
             error = (i < parts.size() - 1) ? QFATError::DirectoryNotFound : QFATError::FileNotFound;
             m_lastError = error;
@@ -1102,11 +1114,14 @@ bool QFAT16FileSystem::updateDirectoryEntry(const QString &parentPath, const QFA
     }
 
     // Determine if we need LFN entries
-    // LFN writing is disabled to avoid running out of consecutive directory entry space
-    // in the fixed-size FAT16 root directory. Files can be accessed by their short names.
-    bool needsLFN = false;
-    int lfnEntriesNeeded = 0;
-    int totalEntriesNeeded = 1; // Just short name entry
+    // Only write LFN for files with numeric tails (e.g., TESTFI~1.TXT) where the long name
+    // differs from the short name. This is essential for distinguishing files with similar names.
+    bool needsLFN = (fileInfo.name.contains('~') &&
+                     !fileInfo.longName.isEmpty() &&
+                     fileInfo.longName.toUpper() != fileInfo.name.toUpper());
+    qDebug() << "[updateDirectoryEntry] File:" << fileInfo.longName << "Short:" << fileInfo.name << "needsLFN:" << needsLFN;
+    int lfnEntriesNeeded = needsLFN ? calculateLFNEntriesNeeded(fileInfo.longName) : 0;
+    int totalEntriesNeeded = lfnEntriesNeeded + 1; // LFN entries + short name entry
 
     // Find existing entry by name, or find consecutive free slots
     quint32 entryOffset = dirOffset;
@@ -1191,6 +1206,7 @@ bool QFAT16FileSystem::updateDirectoryEntry(const QString &parentPath, const QFA
     } else if (foundFree) {
         // Write LFN entries if needed, followed by short name entry
         if (needsLFN) {
+            qDebug() << "[updateDirectoryEntry] Writing LFN for" << fileInfo.longName << "short:" << fileInfo.name << "entries:" << lfnEntriesNeeded;
             quint8 checksum = calculateLFNChecksum(fileInfo.name);
             quint32 currentOffset = freeSlotOffset;
 
@@ -1208,10 +1224,41 @@ bool QFAT16FileSystem::updateDirectoryEntry(const QString &parentPath, const QFA
             // Write short name entry after LFN entries
             return createDirectoryEntry(currentOffset, fileInfo);
         } else {
+            // Writing without LFN - store mapping if long and short names differ
+            if (!fileInfo.longName.isEmpty() && fileInfo.longName.toLower() != fileInfo.name.toLower()) {
+                m_longToShortNameMap[fileInfo.longName.toLower()] = fileInfo.name;
+                qDebug() << "[updateDirectoryEntry] Stored mapping (no LFN):" << fileInfo.longName.toLower() << "->" << fileInfo.name;
+            }
             return createDirectoryEntry(freeSlotOffset, fileInfo);
         }
     }
 
+    // If we need LFN but couldn't find consecutive space, try to find a single slot
+    // and write short-name-only as a fallback
+    if (needsLFN && !foundFree) {
+        qDebug() << "[updateDirectoryEntry] No consecutive space for LFN, trying fallback for" << fileInfo.longName;
+        // Re-scan for a single free slot
+        entryOffset = dirOffset;
+        for (quint32 i = 0; i < maxEntries; i++) {
+            m_stream.device()->seek(entryOffset);
+            quint8 entry[ENTRY_SIZE];
+            m_stream.readRawData(reinterpret_cast<char*>(entry), ENTRY_SIZE);
+
+            quint8 firstByte = entry[ENTRY_NAME_OFFSET];
+            if (firstByte == ENTRY_END_OF_DIRECTORY || firstByte == ENTRY_DELETED) {
+                // Found a single free slot, write short name only
+                qDebug() << "[updateDirectoryEntry] Found single slot at offset" << entryOffset << ", writing short-name-only";
+                // Store mapping so we can find this file by long name later
+                m_longToShortNameMap[fileInfo.longName.toLower()] = fileInfo.name;
+                qDebug() << "[updateDirectoryEntry] Stored mapping:" << fileInfo.longName.toLower() << "->" << fileInfo.name;
+                return createDirectoryEntry(entryOffset, fileInfo);
+            }
+            entryOffset += ENTRY_SIZE;
+        }
+        qDebug() << "[updateDirectoryEntry] No free slots found at all!";
+    }
+
+    qDebug() << "[updateDirectoryEntry] Returning false - foundExisting:" << foundExisting << "foundFree:" << foundFree << "needsLFN:" << needsLFN;
     return false;
 }
 
@@ -1314,7 +1361,9 @@ bool QFAT16FileSystem::writeFile(const QString &path, const QByteArray &data, QF
     // Use existing file info if file exists, otherwise generate new short name
     if (fileExists) {
         fileInfo.name = existingFile.name;
-        fileInfo.longName = existingFile.longName;
+        // Always use the provided fileName as the long name, not the existing one
+        // This ensures we don't carry over garbage LFN data
+        fileInfo.longName = fileName;
     } else {
         fileInfo.name = generateShortName(fileName, parentEntries);
         fileInfo.longName = fileName;
@@ -1834,6 +1883,13 @@ QFATFileInfo QFAT32FileSystem::findFileByPath(const QString &path, QFATError &er
     for (int i = 0; i < parts.size(); i++) {
         QFATFileInfo found = findInDirectory(currentDir, parts[i]);
 
+        // If not found by normal means, check the in-memory mapping for files written without LFN
+        if (found.name.isEmpty() && m_longToShortNameMap.contains(parts[i].toLower())) {
+            QString shortName = m_longToShortNameMap[parts[i].toLower()];
+            qDebug() << "[findFileByPath] Using mapping for" << parts[i] << "->" << shortName;
+            found = findInDirectory(currentDir, shortName);
+        }
+
         if (found.name.isEmpty()) {
             error = (i < parts.size() - 1) ? QFATError::DirectoryNotFound : QFATError::FileNotFound;
             m_lastError = error;
@@ -2253,6 +2309,11 @@ bool QFAT32FileSystem::updateDirectoryEntry(const QString &parentPath, const QFA
     if (foundExisting) {
         return createDirectoryEntry(existingOffset, fileInfo);
     } else if (foundFree) {
+        // Store mapping for files that might need it
+        if (!fileInfo.longName.isEmpty() && fileInfo.longName.toLower() != fileInfo.name.toLower()) {
+            m_longToShortNameMap[fileInfo.longName.toLower()] = fileInfo.name;
+            qDebug() << "[FAT32 updateDirectoryEntry] Stored mapping:" << fileInfo.longName.toLower() << "->" << fileInfo.name;
+        }
         return createDirectoryEntry(freeSlotOffset, fileInfo);
     }
 
@@ -2359,7 +2420,9 @@ bool QFAT32FileSystem::writeFile(const QString &path, const QByteArray &data, QF
     // Use existing file info if file exists, otherwise generate new short name
     if (fileExists) {
         fileInfo.name = existingFile.name;
-        fileInfo.longName = existingFile.longName;
+        // Always use the provided fileName as the long name, not the existing one
+        // This ensures we don't carry over garbage LFN data
+        fileInfo.longName = fileName;
     } else {
         fileInfo.name = generateShortName(fileName, parentEntries);
         fileInfo.longName = fileName;
