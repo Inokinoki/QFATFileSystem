@@ -1,0 +1,80 @@
+name: Build and Test on Linux
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    name: ${{ matrix.qt_package }} on Ubuntu
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        qt_package:
+          - qt6-base-dev
+          - qtbase5-dev
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Display Ubuntu version
+        run: |
+          sudo apt-get update
+          lsb_release -a
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y \
+            ${{ matrix.qt_package }} \
+            cmake \
+            ninja-build \
+            dosfstools
+
+      - name: Generate test images
+        run: |
+          cd tests
+          chmod +x generate_test_images.sh
+          sudo ./generate_test_images.sh
+
+      - name: Verify test images
+        run: |
+          ls -lh tests/data/
+          test -f tests/data/fat16.img || exit 1
+          test -f tests/data/fat32.img || exit 1
+
+      - name: Configure CMake
+        # See: https://cmake.org/cmake/help/latest/manual/cmake.1.html
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_TESTING=YES
+
+      - name: Build
+        # See: https://cmake.org/cmake/help/latest/manual/cmake.1.html
+        run: cmake --build build --config ${{env.BUILD_TYPE}}
+
+      - name: Test
+        run: |
+          cd build
+          ctest -C ${{env.BUILD_TYPE}} --output-on-failure --verbose
+
+      - name: Memory leak check
+        if: matrix.qt_package == 'qt6-base-dev'
+        run: |
+          sudo apt-get install -y valgrind
+          cd build/tests
+          for test in test_*; do
+            if [ -x "$test" ]; then
+              echo "Running valgrind on $test"
+              valgrind --leak-check=full --error-exitcode=1 ./"$test" || echo "::warning::Memory leak detected in $test"
+            fi
+          done
+        continue-on-error: true
