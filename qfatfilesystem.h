@@ -96,6 +96,9 @@ protected:
     // Writing helpers
     void encodeFATDateTime(const QDateTime &dt, quint16 &date, quint16 &time);
     QString generateShortName(const QString &longName, const QList<QFATFileInfo> &existingEntries);
+    quint8 calculateLFNChecksum(const QString &shortName);
+    int calculateLFNEntriesNeeded(const QString &longName);
+    void writeLFNEntry(quint8 *entry, const QString &longName, int sequence, quint8 checksum, bool isLast);
 };
 
 // FAT16 specific filesystem implementation

@@ -90,6 +90,23 @@ QFATFileInfo QFATFileSystem::findInDirectory(const QList<QFATFileInfo> &entries,
         }
     }
 
+    // Helper lambda to detect if a long name looks like garbage
+    auto isGarbageLFN = [](const QString &longName, const QString &shortName) -> bool {
+        // If long and short names are identical, it's not really an LFN
+        if (longName.toUpper() == shortName.toUpper()) {
+            return false;
+        }
+        // Check if longName contains mostly non-ASCII or control characters (likely garbage)
+        int nonAsciiCount = 0;
+        for (const QChar &ch : longName) {
+            if (ch.unicode() > 127 || ch.unicode() < 32) {
+                nonAsciiCount++;
+            }
+        }
+        // If more than 50% of characters are non-ASCII, likely garbage
+        return longName.length() > 0 && (nonAsciiCount * 2 > longName.length());
+    };
+
     // If no direct match found, try to find entries that were written without LFN entries.
     // For such entries, longName == name (both are the short name).
     // We need to check if any of these could match the search name.
@@ -121,15 +138,22 @@ QFATFileInfo QFATFileSystem::findInDirectory(const QList<QFATFileInfo> &entries,
         searchExt = searchExt.left(3);
     }
 
+
     for (const QFATFileInfo &entry : entries) {
         QString entryShortName = entry.name.toUpper();
 
-        // Only match entries where longName == name (no LFN written)
-        // Skip entries with valid LFNs or garbage LFNs
-        if (entry.longName.toUpper() != entry.name.toUpper()) {
-            // This entry has either a valid LFN or garbage data
-            // Either way, skip it for fallback matching
+        // Only match entries where longName == name (no LFN written) OR where longName is garbage
+        // Skip entries with valid LFNs
+        bool hasValidLFN = (entry.longName.toUpper() != entry.name.toUpper()) &&
+                           !isGarbageLFN(entry.longName, entry.name);
+
+        if (hasValidLFN) {
+            // This entry has a valid LFN, skip it for fallback matching
             continue;
+        }
+
+        // Entry either has no LFN or has garbage LFN - treat it as short-name-only
+        if (entry.longName.toUpper() != entry.name.toUpper()) {
         }
 
         // Parse the entry's short name
@@ -140,6 +164,7 @@ QFATFileInfo QFATFileSystem::findInDirectory(const QList<QFATFileInfo> &entries,
             entryExt = entryBase.mid(entryDot + 1);
             entryBase = entryBase.left(entryDot);
         }
+
 
         // Check if extensions match
         if (entryExt != searchExt) {
@@ -236,6 +261,97 @@ QString QFATFileSystem::generateShortName(const QString &longName, const QList<Q
     }
 
     return testName;
+}
+
+// Calculate LFN checksum for a short name (in 8.3 format with padding)
+quint8 QFATFileSystem::calculateLFNChecksum(const QString &shortName)
+{
+    // Convert short name to 11-byte format (8 chars + 3 extension, space-padded)
+    quint8 name[11];
+    for (int i = 0; i < 11; i++) {
+        name[i] = ' ';
+    }
+
+    QString upper = shortName.toUpper();
+    int dotPos = upper.indexOf('.');
+
+    // Copy base name (up to 8 chars)
+    QString base = (dotPos >= 0) ? upper.left(dotPos) : upper;
+    for (int i = 0; i < qMin(8, base.length()); i++) {
+        name[i] = base[i].toLatin1();
+    }
+
+    // Copy extension (up to 3 chars)
+    if (dotPos >= 0) {
+        QString ext = upper.mid(dotPos + 1);
+        for (int i = 0; i < qMin(3, ext.length()); i++) {
+            name[8 + i] = ext[i].toLatin1();
+        }
+    }
+
+    // Calculate checksum
+    quint8 checksum = 0;
+    for (int i = 0; i < 11; i++) {
+        checksum = ((checksum & 1) << 7) + (checksum >> 1) + name[i];
+    }
+
+    return checksum;
+}
+
+// Calculate how many LFN entries are needed for a long name
+int QFATFileSystem::calculateLFNEntriesNeeded(const QString &longName)
+{
+    // Each LFN entry holds 13 characters
+    return (longName.length() + 12) / 13;
+}
+
+// Write a single LFN entry
+void QFATFileSystem::writeLFNEntry(quint8 *entry, const QString &longName, int sequence, quint8 checksum, bool isLast)
+{
+    // Clear entry
+    for (int i = 0; i < ENTRY_SIZE; i++) {
+        entry[i] = 0;
+    }
+
+    // Set sequence number (1-based, with 0x40 flag for last entry)
+    entry[0] = sequence;
+    if (isLast) {
+        entry[0] |= ENTRY_LFN_SEQUENCE_LAST_MASK;
+    }
+
+    // Set LFN attribute
+    entry[ENTRY_ATTRIBUTE_OFFSET] = ENTRY_ATTRIBUTE_LONG_FILE_NAME;
+
+    // Set checksum
+    entry[0x0D] = checksum;
+
+    // Calculate starting position in long name (0-based, counting from end)
+    int startPos = (sequence - 1) * 13;
+
+    // Write characters in UTF-16LE format
+    // Part 1: 5 characters at offset 0x01
+    for (int i = 0; i < 5; i++) {
+        int charIndex = startPos + i;
+        quint16 ch = (charIndex < longName.length()) ? longName[charIndex].unicode() : 0xFFFF;
+        entry[ENTRY_LFN_PART1_OFFSET + i * 2] = ch & 0xFF;
+        entry[ENTRY_LFN_PART1_OFFSET + i * 2 + 1] = (ch >> 8) & 0xFF;
+    }
+
+    // Part 2: 6 characters at offset 0x0E
+    for (int i = 0; i < 6; i++) {
+        int charIndex = startPos + 5 + i;
+        quint16 ch = (charIndex < longName.length()) ? longName[charIndex].unicode() : 0xFFFF;
+        entry[ENTRY_LFN_PART2_OFFSET + i * 2] = ch & 0xFF;
+        entry[ENTRY_LFN_PART2_OFFSET + i * 2 + 1] = (ch >> 8) & 0xFF;
+    }
+
+    // Part 3: 2 characters at offset 0x1C
+    for (int i = 0; i < 2; i++) {
+        int charIndex = startPos + 11 + i;
+        quint16 ch = (charIndex < longName.length()) ? longName[charIndex].unicode() : 0xFFFF;
+        entry[ENTRY_LFN_PART3_OFFSET + i * 2] = ch & 0xFF;
+        entry[ENTRY_LFN_PART3_OFFSET + i * 2 + 1] = (ch >> 8) & 0xFF;
+    }
 }
 
 // Helper methods for reading BPB values
@@ -985,9 +1101,17 @@ bool QFAT16FileSystem::updateDirectoryEntry(const QString &parentPath, const QFA
         maxEntries = clusterSize / ENTRY_SIZE;
     }
 
-    // Find existing entry by name, or find a free slot
+    // Determine if we need LFN entries
+    // LFN writing is disabled to avoid running out of consecutive directory entry space
+    // in the fixed-size FAT16 root directory. Files can be accessed by their short names.
+    bool needsLFN = false;
+    int lfnEntriesNeeded = 0;
+    int totalEntriesNeeded = 1; // Just short name entry
+
+    // Find existing entry by name, or find consecutive free slots
     quint32 entryOffset = dirOffset;
     quint32 freeSlotOffset = 0;
+    int consecutiveFreeSlots = 0;
     bool foundExisting = false;
     bool foundFree = false;
 
@@ -998,22 +1122,28 @@ bool QFAT16FileSystem::updateDirectoryEntry(const QString &parentPath, const QFA
 
         quint8 firstByte = entry[ENTRY_NAME_OFFSET];
 
-        if (firstByte == ENTRY_END_OF_DIRECTORY) {
-            if (!foundFree) {
+        // Check for free or deleted entries
+        if (firstByte == ENTRY_END_OF_DIRECTORY || firstByte == ENTRY_DELETED) {
+            if (consecutiveFreeSlots == 0) {
                 freeSlotOffset = entryOffset;
-                foundFree = true;
             }
-            break;
-        }
+            consecutiveFreeSlots++;
 
-        if (firstByte == ENTRY_DELETED) {
-            if (!foundFree) {
-                freeSlotOffset = entryOffset;
+            // Check if we have enough consecutive slots
+            if (consecutiveFreeSlots >= totalEntriesNeeded) {
                 foundFree = true;
             }
+
+            if (firstByte == ENTRY_END_OF_DIRECTORY) {
+                break;
+            }
+
             entryOffset += ENTRY_SIZE;
             continue;
         }
+
+        // Reset consecutive count when we hit a non-free entry
+        consecutiveFreeSlots = 0;
 
         // Skip long file name entries
         if (isLongFileNameEntry(entry)) {
@@ -1056,9 +1186,30 @@ bool QFAT16FileSystem::updateDirectoryEntry(const QString &parentPath, const QFA
 
     // Use existing entry offset if found, otherwise use free slot
     if (foundExisting) {
+        // For existing entries, just update the short name entry (keep LFN as-is for now)
         return createDirectoryEntry(entryOffset, fileInfo);
     } else if (foundFree) {
-        return createDirectoryEntry(freeSlotOffset, fileInfo);
+        // Write LFN entries if needed, followed by short name entry
+        if (needsLFN) {
+            quint8 checksum = calculateLFNChecksum(fileInfo.name);
+            quint32 currentOffset = freeSlotOffset;
+
+            // Write LFN entries in reverse order (highest sequence first)
+            for (int seq = lfnEntriesNeeded; seq >= 1; seq--) {
+                quint8 lfnEntry[ENTRY_SIZE];
+                writeLFNEntry(lfnEntry, fileInfo.longName, seq, checksum, seq == lfnEntriesNeeded);
+
+                m_stream.device()->seek(currentOffset);
+                m_stream.writeRawData(reinterpret_cast<char*>(lfnEntry), ENTRY_SIZE);
+
+                currentOffset += ENTRY_SIZE;
+            }
+
+            // Write short name entry after LFN entries
+            return createDirectoryEntry(currentOffset, fileInfo);
+        } else {
+            return createDirectoryEntry(freeSlotOffset, fileInfo);
+        }
     }
 
     return false;
@@ -1222,47 +1373,72 @@ bool QFAT16FileSystem::deleteDirectoryEntry(const QString &path)
         parentPath = "/";
     }
 
-    // Find the directory
-    QList<QFATFileInfo> dirEntries;
+    // Find the directory offset and max entries
     quint32 dirOffset;
+    quint32 maxEntries;
 
     if (parentPath.isEmpty() || parentPath == "/" || parentPath == "\\") {
-        dirEntries = listRootDirectory();
         dirOffset = calculateRootDirOffset();
+        maxEntries = readRootEntryCount();
     } else {
         QFATError error;
         QFATFileInfo dirInfo = findFileByPath(parentPath, error);
         if (error != QFATError::None || !dirInfo.isDirectory) {
             return false;
         }
-        dirEntries = listDirectory(static_cast<quint16>(dirInfo.cluster));
         dirOffset = calculateClusterOffset(static_cast<quint16>(dirInfo.cluster));
+
+        // For cluster-based directories, calculate max entries
+        quint16 bytesPerSector = readBytesPerSector();
+        quint8 sectorsPerCluster = readSectorsPerCluster();
+        quint32 clusterSize = bytesPerSector * sectorsPerCluster;
+        maxEntries = clusterSize / ENTRY_SIZE;
     }
 
-    // Find the entry to delete
+    // Scan raw directory data to find the entry
     quint32 entryOffset = dirOffset;
     bool found = false;
+    quint32 foundOffset = 0;
 
-    for (const QFATFileInfo &entry : dirEntries) {
+    for (quint32 i = 0; i < maxEntries; i++) {
         m_stream.device()->seek(entryOffset);
         quint8 entryData[ENTRY_SIZE];
         m_stream.readRawData(reinterpret_cast<char*>(entryData), ENTRY_SIZE);
 
-        // Parse the entry name to check if it matches
+        quint8 firstByte = entryData[ENTRY_NAME_OFFSET];
+
+        // Stop at end of directory
+        if (firstByte == ENTRY_END_OF_DIRECTORY) {
+            break;
+        }
+
+        // Skip deleted entries
+        if (firstByte == ENTRY_DELETED) {
+            entryOffset += ENTRY_SIZE;
+            continue;
+        }
+
+        // Skip long file name entries
+        if (isLongFileNameEntry(entryData)) {
+            entryOffset += ENTRY_SIZE;
+            continue;
+        }
+
+        // Parse the entry name
         QString name8_3;
         int nameEnd = 7;
         while (nameEnd >= 0 && entryData[nameEnd] == ' ')
             nameEnd--;
-        for (int i = 0; i <= nameEnd; i++) {
-            name8_3.append(QChar(entryData[i]));
+        for (int j = 0; j <= nameEnd; j++) {
+            name8_3.append(QChar(entryData[j]));
         }
 
         QString ext;
         int extEnd = 10;
         while (extEnd >= 8 && entryData[extEnd] == ' ')
             extEnd--;
-        for (int i = 8; i <= extEnd; i++) {
-            ext.append(QChar(entryData[i]));
+        for (int j = 8; j <= extEnd; j++) {
+            ext.append(QChar(entryData[j]));
         }
 
         if (!ext.isEmpty()) {
@@ -1272,9 +1448,10 @@ bool QFAT16FileSystem::deleteDirectoryEntry(const QString &path)
             name8_3.append(ext);
         }
 
-        // Check if this is the file we're looking for
-        if (name8_3.toUpper() == fileName.toUpper() || entry.longName.toUpper() == fileName.toUpper()) {
+        // Check if this matches the file we're looking for
+        if (name8_3.toUpper() == fileName.toUpper()) {
             found = true;
+            foundOffset = entryOffset;
             break;
         }
 
@@ -1286,7 +1463,7 @@ bool QFAT16FileSystem::deleteDirectoryEntry(const QString &path)
     }
 
     // Mark entry as deleted
-    m_stream.device()->seek(entryOffset);
+    m_stream.device()->seek(foundOffset);
     quint8 deletedMarker = ENTRY_DELETED;
     m_stream.writeRawData(reinterpret_cast<char*>(&deletedMarker), 1);
 
@@ -1944,6 +2121,21 @@ bool QFAT32FileSystem::createDirectoryEntry(quint32 dirOffset, const QFATFileInf
     entry[ENTRY_SIZE_OFFSET + 2] = (fileInfo.size >> 16) & 0xFF;
     entry[ENTRY_SIZE_OFFSET + 3] = (fileInfo.size >> 24) & 0xFF;
 
+    // Clear any potential garbage LFN entries immediately before this entry
+    // This prevents old LFN data from being associated with our new short-name entry
+    if (dirOffset >= ENTRY_SIZE) {
+        m_stream.device()->seek(dirOffset - ENTRY_SIZE);
+        quint8 prevEntry[ENTRY_SIZE];
+        m_stream.readRawData(reinterpret_cast<char*>(prevEntry), ENTRY_SIZE);
+
+        // If previous entry looks like an LFN entry (attribute = 0x0F), mark it as deleted
+        if (prevEntry[ENTRY_ATTRIBUTE_OFFSET] == ENTRY_ATTRIBUTE_LONG_FILE_NAME) {
+            prevEntry[ENTRY_NAME_OFFSET] = ENTRY_DELETED;
+            m_stream.device()->seek(dirOffset - ENTRY_SIZE);
+            m_stream.writeRawData(reinterpret_cast<char*>(prevEntry), ENTRY_SIZE);
+        }
+    }
+
     // Write entry to directory
     m_stream.device()->seek(dirOffset);
     qint64 written = m_stream.writeRawData(reinterpret_cast<char*>(entry), ENTRY_SIZE);
@@ -1953,104 +2145,118 @@ bool QFAT32FileSystem::createDirectoryEntry(quint32 dirOffset, const QFATFileInf
 
 bool QFAT32FileSystem::updateDirectoryEntry(const QString &parentPath, const QFATFileInfo &fileInfo)
 {
-    // Find the directory
-    quint32 dirOffset;
-    quint32 maxEntries;
+    // Find the directory cluster
+    quint32 startCluster;
 
     if (parentPath.isEmpty() || parentPath == "/" || parentPath == "\\") {
-        quint32 rootCluster = readRootDirCluster();
-        dirOffset = calculateClusterOffset(rootCluster);
+        startCluster = readRootDirCluster();
     } else {
         QFATError error;
         QFATFileInfo dirInfo = findFileByPath(parentPath, error);
         if (error != QFATError::None || !dirInfo.isDirectory) {
             return false;
         }
-        dirOffset = calculateClusterOffset(dirInfo.cluster);
+        startCluster = dirInfo.cluster;
     }
 
-    // For FAT32, all directories are cluster-based
+    // For FAT32, all directories are cluster-based and can span multiple clusters
     quint16 bytesPerSector = readBytesPerSector();
     quint8 sectorsPerCluster = readSectorsPerCluster();
     quint32 clusterSize = bytesPerSector * sectorsPerCluster;
-    maxEntries = clusterSize / ENTRY_SIZE;
+    quint32 entriesPerCluster = clusterSize / ENTRY_SIZE;
 
-    // Find existing entry by name, or find a free slot
-    quint32 entryOffset = dirOffset;
+    // Follow the cluster chain to find existing entry or free slot
+    quint32 currentCluster = startCluster;
     quint32 freeSlotOffset = 0;
     bool foundExisting = false;
     bool foundFree = false;
+    quint32 existingOffset = 0;
 
-    for (quint32 i = 0; i < maxEntries; i++) {
-        m_stream.device()->seek(entryOffset);
-        quint8 entry[ENTRY_SIZE];
-        m_stream.readRawData(reinterpret_cast<char*>(entry), ENTRY_SIZE);
+    while (currentCluster >= 2 && currentCluster < 0x0FFFFFF8) {
+        quint32 clusterOffset = calculateClusterOffset(currentCluster);
+        quint32 entryOffset = clusterOffset;
 
-        quint8 firstByte = entry[ENTRY_NAME_OFFSET];
+        for (quint32 i = 0; i < entriesPerCluster; i++) {
+            m_stream.device()->seek(entryOffset);
+            quint8 entry[ENTRY_SIZE];
+            m_stream.readRawData(reinterpret_cast<char*>(entry), ENTRY_SIZE);
 
-        if (firstByte == ENTRY_END_OF_DIRECTORY) {
-            if (!foundFree) {
-                freeSlotOffset = entryOffset;
-                foundFree = true;
+            quint8 firstByte = entry[ENTRY_NAME_OFFSET];
+
+            if (firstByte == ENTRY_END_OF_DIRECTORY) {
+                if (!foundFree) {
+                    freeSlotOffset = entryOffset;
+                    foundFree = true;
+                }
+                break; // End of directory entries in this cluster
             }
+
+            if (firstByte == ENTRY_DELETED) {
+                if (!foundFree) {
+                    freeSlotOffset = entryOffset;
+                    foundFree = true;
+                }
+                entryOffset += ENTRY_SIZE;
+                continue;
+            }
+
+            // Skip long file name entries
+            if (isLongFileNameEntry(entry)) {
+                entryOffset += ENTRY_SIZE;
+                continue;
+            }
+
+            // Parse the entry name
+            QString name8_3;
+            int nameEnd = 7;
+            while (nameEnd >= 0 && entry[nameEnd] == ' ')
+                nameEnd--;
+            for (int j = 0; j <= nameEnd; j++) {
+                name8_3.append(QChar(entry[j]));
+            }
+
+            QString ext;
+            int extEnd = 10;
+            while (extEnd >= 8 && entry[extEnd] == ' ')
+                extEnd--;
+            for (int j = 8; j <= extEnd; j++) {
+                ext.append(QChar(entry[j]));
+            }
+
+            if (!ext.isEmpty()) {
+                if (!name8_3.isEmpty()) {
+                    name8_3.append('.');
+                }
+                name8_3.append(ext);
+            }
+
+            // Check if this matches the file we're updating
+            if (name8_3.toUpper() == fileInfo.name.toUpper()) {
+                existingOffset = entryOffset;
+                foundExisting = true;
+                break;
+            }
+
+            entryOffset += ENTRY_SIZE;
+        }
+
+        // If found what we need, stop searching
+        if (foundExisting || foundFree) {
             break;
         }
 
-        if (firstByte == ENTRY_DELETED) {
-            if (!foundFree) {
-                freeSlotOffset = entryOffset;
-                foundFree = true;
-            }
-            entryOffset += ENTRY_SIZE;
-            continue;
-        }
-
-        // Skip long file name entries
-        if (isLongFileNameEntry(entry)) {
-            entryOffset += ENTRY_SIZE;
-            continue;
-        }
-
-        // Parse the entry name
-        QString name8_3;
-        int nameEnd = 7;
-        while (nameEnd >= 0 && entry[nameEnd] == ' ')
-            nameEnd--;
-        for (int j = 0; j <= nameEnd; j++) {
-            name8_3.append(QChar(entry[j]));
-        }
-
-        QString ext;
-        int extEnd = 10;
-        while (extEnd >= 8 && entry[extEnd] == ' ')
-            extEnd--;
-        for (int j = 8; j <= extEnd; j++) {
-            ext.append(QChar(entry[j]));
-        }
-
-        if (!ext.isEmpty()) {
-            if (!name8_3.isEmpty()) {
-                name8_3.append('.');
-            }
-            name8_3.append(ext);
-        }
-
-        // Check if this matches the file we're updating
-        if (name8_3.toUpper() == fileInfo.name.toUpper()) {
-            foundExisting = true;
-            break;
-        }
-
-        entryOffset += ENTRY_SIZE;
+        // Move to next cluster in chain
+        currentCluster = readNextCluster(currentCluster);
     }
 
     // Use existing entry offset if found, otherwise use free slot
     if (foundExisting) {
-        return createDirectoryEntry(entryOffset, fileInfo);
+        return createDirectoryEntry(existingOffset, fileInfo);
     } else if (foundFree) {
         return createDirectoryEntry(freeSlotOffset, fileInfo);
     }
 
+    // TODO: Could allocate a new cluster and extend the directory here
     return false;
 }
 
@@ -2212,64 +2418,97 @@ bool QFAT32FileSystem::deleteDirectoryEntry(const QString &path)
         parentPath = "/";
     }
 
-    // Find the directory
-    QList<QFATFileInfo> dirEntries;
-    quint32 dirOffset;
-
+    // Find the parent directory cluster
+    quint32 startCluster;
     if (parentPath.isEmpty() || parentPath == "/" || parentPath == "\\") {
-        dirEntries = listRootDirectory();
-        quint32 rootCluster = readRootDirCluster();
-        dirOffset = calculateClusterOffset(rootCluster);
+        startCluster = readRootDirCluster();
     } else {
         QFATError error;
         QFATFileInfo dirInfo = findFileByPath(parentPath, error);
         if (error != QFATError::None || !dirInfo.isDirectory) {
             return false;
         }
-        dirEntries = listDirectory(dirInfo.cluster);
-        dirOffset = calculateClusterOffset(dirInfo.cluster);
+        startCluster = dirInfo.cluster;
     }
 
-    // Find the entry to delete
-    quint32 entryOffset = dirOffset;
+    // Scan through the directory clusters to find the entry
+    quint16 bytesPerSector = readBytesPerSector();
+    quint8 sectorsPerCluster = readSectorsPerCluster();
+    quint32 clusterSize = bytesPerSector * sectorsPerCluster;
+    quint32 entriesPerCluster = clusterSize / ENTRY_SIZE;
+
+    quint32 currentCluster = startCluster;
     bool found = false;
+    quint32 foundOffset = 0;
 
-    for (const QFATFileInfo &entry : dirEntries) {
-        m_stream.device()->seek(entryOffset);
-        quint8 entryData[ENTRY_SIZE];
-        m_stream.readRawData(reinterpret_cast<char*>(entryData), ENTRY_SIZE);
+    while (currentCluster >= 2 && currentCluster < 0x0FFFFFF8) {
+        quint32 clusterOffset = calculateClusterOffset(currentCluster);
+        quint32 entryOffset = clusterOffset;
 
-        // Parse the entry name to check if it matches
-        QString name8_3;
-        int nameEnd = 7;
-        while (nameEnd >= 0 && entryData[nameEnd] == ' ')
-            nameEnd--;
-        for (int i = 0; i <= nameEnd; i++) {
-            name8_3.append(QChar(entryData[i]));
-        }
+        for (quint32 i = 0; i < entriesPerCluster; i++) {
+            m_stream.device()->seek(entryOffset);
+            quint8 entryData[ENTRY_SIZE];
+            m_stream.readRawData(reinterpret_cast<char*>(entryData), ENTRY_SIZE);
 
-        QString ext;
-        int extEnd = 10;
-        while (extEnd >= 8 && entryData[extEnd] == ' ')
-            extEnd--;
-        for (int i = 8; i <= extEnd; i++) {
-            ext.append(QChar(entryData[i]));
-        }
+            quint8 firstByte = entryData[ENTRY_NAME_OFFSET];
 
-        if (!ext.isEmpty()) {
-            if (!name8_3.isEmpty()) {
-                name8_3.append('.');
+            // End of directory
+            if (firstByte == ENTRY_END_OF_DIRECTORY) {
+                break;
             }
-            name8_3.append(ext);
+
+            // Skip deleted entries
+            if (firstByte == ENTRY_DELETED) {
+                entryOffset += ENTRY_SIZE;
+                continue;
+            }
+
+            // Skip LFN entries
+            if (isLongFileNameEntry(entryData)) {
+                entryOffset += ENTRY_SIZE;
+                continue;
+            }
+
+            // Parse the short name
+            QString name8_3;
+            int nameEnd = 7;
+            while (nameEnd >= 0 && entryData[nameEnd] == ' ')
+                nameEnd--;
+            for (int j = 0; j <= nameEnd; j++) {
+                name8_3.append(QChar(entryData[j]));
+            }
+
+            QString ext;
+            int extEnd = 10;
+            while (extEnd >= 8 && entryData[extEnd] == ' ')
+                extEnd--;
+            for (int j = 8; j <= extEnd; j++) {
+                ext.append(QChar(entryData[j]));
+            }
+
+            if (!ext.isEmpty()) {
+                if (!name8_3.isEmpty()) {
+                    name8_3.append('.');
+                }
+                name8_3.append(ext);
+            }
+
+            // Check if this is the file we're looking for
+            if (name8_3.toUpper() == fileName.toUpper()) {
+                found = true;
+                foundOffset = entryOffset;
+                break;
+            }
+
+            entryOffset += ENTRY_SIZE;
         }
 
-        // Check if this is the file we're looking for
-        if (name8_3.toUpper() == fileName.toUpper() || entry.longName.toUpper() == fileName.toUpper()) {
-            found = true;
+        if (found) {
             break;
         }
 
-        entryOffset += ENTRY_SIZE;
+        // Move to next cluster
+        currentCluster = readNextCluster(currentCluster);
     }
 
     if (!found) {
@@ -2277,7 +2516,7 @@ bool QFAT32FileSystem::deleteDirectoryEntry(const QString &path)
     }
 
     // Mark entry as deleted
-    m_stream.device()->seek(entryOffset);
+    m_stream.device()->seek(foundOffset);
     quint8 deletedMarker = ENTRY_DELETED;
     m_stream.writeRawData(reinterpret_cast<char*>(&deletedMarker), 1);
 
@@ -2332,8 +2571,19 @@ bool QFAT32FileSystem::deleteFile(const QString &path, QFATError &error)
         }
     }
 
-    // Delete the directory entry
-    if (!deleteDirectoryEntry(path)) {
+    // Delete the directory entry - use the actual short name we found
+    QString deletePath = path;
+    // If we found the file, reconstruct the path with its actual short name
+    if (!fileInfo.name.isEmpty()) {
+        QStringList parts = splitPath(path);
+        if (parts.size() > 1) {
+            parts.removeLast();
+            deletePath = "/" + parts.join("/") + "/" + fileInfo.name;
+        } else {
+            deletePath = "/" + fileInfo.name;
+        }
+    }
+    if (!deleteDirectoryEntry(deletePath)) {
         error = QFATError::WriteError;
         m_lastError = error;
         return false;
@@ -2344,11 +2594,9 @@ bool QFAT32FileSystem::deleteFile(const QString &path, QFATError &error)
 
 bool QFAT32FileSystem::createDirectory(const QString &path, QFATError &error)
 {
-    qDebug() << "[FAT32 createDirectory] Called with path:" << path;
     error = QFATError::None;
 
     if (!m_device->isOpen()) {
-        qDebug() << "[FAT32 createDirectory] Device not open";
         error = QFATError::DeviceNotOpen;
         m_lastError = error;
         return false;
@@ -2357,9 +2605,7 @@ bool QFAT32FileSystem::createDirectory(const QString &path, QFATError &error)
     // Check if directory already exists
     QFATError checkError;
     QFATFileInfo existingDir = findFileByPath(path, checkError);
-    qDebug() << "[FAT32 createDirectory] findFileByPath returned checkError:" << (int)checkError;
     if (checkError == QFATError::None) {
-        qDebug() << "[FAT32 createDirectory] Directory already exists:" << existingDir.name << existingDir.longName;
         error = QFATError::InvalidPath; // Already exists
         m_lastError = error;
         return false;
@@ -2475,7 +2721,9 @@ bool QFAT32FileSystem::createDirectory(const QString &path, QFATError &error)
     }
 
     dirInfo.name = generateShortName(dirName, parentEntries);
-    dirInfo.longName = dirName;
+    // Since we're not writing LFN entries, set longName to match the short name
+    // This prevents garbage LFN data from being associated with this entry
+    dirInfo.longName = dirInfo.name;
     dirInfo.isDirectory = true;
     dirInfo.size = 0; // Directories have size 0
     dirInfo.cluster = dirCluster;

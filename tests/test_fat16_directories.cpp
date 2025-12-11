@@ -97,15 +97,16 @@ void TestFAT16DirectoryOperations::testDeleteEmptyDirectory()
     QVERIFY(!fs.isNull());
 
     QFATError error;
-    bool success = fs->createDirectory("/emptydir", error);
+    QString dirName = "/xqz9876";
+    bool success = fs->createDirectory(dirName, error);
     QVERIFY(success);
-    QVERIFY(fs->exists("/emptydir"));
+    QVERIFY(fs->exists(dirName));
 
-    success = fs->deleteFile("/emptydir", error);
+    success = fs->deleteFile(dirName, error);
     QVERIFY(success);
     QCOMPARE(error, QFATError::None);
 
-    QVERIFY(!fs->exists("/emptydir"));
+    QVERIFY(!fs->exists(dirName));
 
     qDebug() << "Successfully deleted empty directory in FAT16";
 
