@@ -46,6 +46,8 @@ jobs:
           cd tests
           chmod +x generate_test_images.sh
           sudo ./generate_test_images.sh
+          # Change ownership back to runner user to avoid permission issues
+          sudo chown -R $USER:$USER data/
 
       - name: Verify test images
         run: |
