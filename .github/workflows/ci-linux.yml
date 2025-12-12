@@ -63,6 +63,13 @@ jobs:
         # See: https://cmake.org/cmake/help/latest/manual/cmake.1.html
         run: cmake --build build --config ${{env.BUILD_TYPE}}
 
+      - name: Copy test images to build directory
+        run: |
+          mkdir -p build/tests/data
+          cp tests/data/fat16.img build/tests/data/
+          cp tests/data/fat32.img build/tests/data/
+          ls -lh build/tests/data/
+
       - name: Test
         run: |
           cd build
