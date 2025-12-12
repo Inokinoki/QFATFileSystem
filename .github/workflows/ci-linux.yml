@@ -55,6 +55,21 @@ jobs:
           test -f tests/data/fat16.img || exit 1
           test -f tests/data/fat32.img || exit 1
 
+      - name: Debug - Check image contents
+        run: |
+          echo "=== Checking FAT16 image ==="
+          file tests/data/fat16.img
+          sudo file -s tests/data/fat16.img
+          echo "=== Checking FAT32 image ==="
+          file tests/data/fat32.img
+          sudo file -s tests/data/fat32.img
+          echo "=== Mounting and listing FAT16 ==="
+          sudo mkdir -p /tmp/debug_mount
+          sudo mount -o loop tests/data/fat16.img /tmp/debug_mount || echo "Mount failed"
+          sudo ls -la /tmp/debug_mount || echo "List failed"
+          sudo umount /tmp/debug_mount || true
+          sudo rmdir /tmp/debug_mount || true
+
       - name: Configure CMake
         # See: https://cmake.org/cmake/help/latest/manual/cmake.1.html
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_TESTING=YES
