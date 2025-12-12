@@ -85,8 +85,11 @@ QFATFileInfo QFATFileSystem::findInDirectory(const QList<QFATFileInfo> &entries,
         QString entryLongName = entry.longName.toUpper();
 
         // Match by exact name (short or long)
-        if (entryShortName == upperName || entryLongName == upperName) {
-            qDebug() << "[findInDirectory] Matched" << name << "to short:" << entry.name << "long:" << entry.longName;
+        if (entryShortName == upperName) {
+            qDebug() << "[findInDirectory] Matched" << name << "to short:" << entry.name;
+            return entry;
+        } else if (entryLongName == upperName) {
+            qDebug() << "[findInDirectory] Matched" << name << "to long:" << entry.longName;
             return entry;
         }
     }
