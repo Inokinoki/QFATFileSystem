@@ -7,29 +7,40 @@ set(test_libraries QFATFS Qt${QT_VERSION_MAJOR}::Test)
 set(GENERATE_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/generate_test_images.sh")
 set(TEST_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data")
 
-# Add custom command to generate test images
-add_custom_command(
-    OUTPUT ${TEST_DATA_DIR}/fat16.img ${TEST_DATA_DIR}/fat32.img
-    COMMAND chmod +x ${GENERATE_SCRIPT}
-    COMMAND ${GENERATE_SCRIPT}
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    COMMENT "Generating FAT test images..."
-    VERBATIM
-)
+# Option to skip test image generation (useful for Docker builds where images are pre-generated)
+option(SKIP_TEST_IMAGE_GENERATION "Skip automatic test image generation" OFF)
 
-# Add custom target for image generation
-add_custom_target(generate_test_images
-    DEPENDS ${TEST_DATA_DIR}/fat16.img ${TEST_DATA_DIR}/fat32.img
-)
+if(NOT SKIP_TEST_IMAGE_GENERATION)
+    # Add custom command to generate test images
+    add_custom_command(
+        OUTPUT ${TEST_DATA_DIR}/fat16.img ${TEST_DATA_DIR}/fat32.img
+        COMMAND chmod +x ${GENERATE_SCRIPT}
+        COMMAND ${GENERATE_SCRIPT}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Generating FAT test images..."
+        VERBATIM
+    )
 
-# Copy generated test files to build directory
-add_custom_command(
-    TARGET generate_test_images POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/data
-    COMMAND ${CMAKE_COMMAND} -E copy ${TEST_DATA_DIR}/fat16.img ${CMAKE_CURRENT_BINARY_DIR}/data/
-    COMMAND ${CMAKE_COMMAND} -E copy ${TEST_DATA_DIR}/fat32.img ${CMAKE_CURRENT_BINARY_DIR}/data/
-    COMMENT "Copying test images to build directory..."
-)
+    # Add custom target for image generation
+    add_custom_target(generate_test_images
+        DEPENDS ${TEST_DATA_DIR}/fat16.img ${TEST_DATA_DIR}/fat32.img
+    )
+
+    # Copy generated test files to build directory
+    add_custom_command(
+        TARGET generate_test_images POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/data
+        COMMAND ${CMAKE_COMMAND} -E copy ${TEST_DATA_DIR}/fat16.img ${CMAKE_CURRENT_BINARY_DIR}/data/
+        COMMAND ${CMAKE_COMMAND} -E copy ${TEST_DATA_DIR}/fat32.img ${CMAKE_CURRENT_BINARY_DIR}/data/
+        COMMENT "Copying test images to build directory..."
+    )
+else()
+    # When skipping generation, just copy existing images to build directory
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/data)
+    file(COPY ${TEST_DATA_DIR}/fat16.img ${TEST_DATA_DIR}/fat32.img
+         DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/data/)
+    message(STATUS "Skipping test image generation, using pre-existing images")
+endif()
 
 # Add test executables
 add_executable(test_common test_common.cpp)
@@ -40,14 +51,16 @@ add_executable(test_fat32_write test_fat32_write.cpp)
 add_executable(test_fat16_directories test_fat16_directories.cpp)
 add_executable(test_fat32_directories test_fat32_directories.cpp)
 
-# Make tests depend on image generation
-add_dependencies(test_common generate_test_images)
-add_dependencies(test_fat16_read generate_test_images)
-add_dependencies(test_fat32_read generate_test_images)
-add_dependencies(test_fat16_write generate_test_images)
-add_dependencies(test_fat32_write generate_test_images)
-add_dependencies(test_fat16_directories generate_test_images)
-add_dependencies(test_fat32_directories generate_test_images)
+# Make tests depend on image generation (only if not skipping)
+if(NOT SKIP_TEST_IMAGE_GENERATION)
+    add_dependencies(test_common generate_test_images)
+    add_dependencies(test_fat16_read generate_test_images)
+    add_dependencies(test_fat32_read generate_test_images)
+    add_dependencies(test_fat16_write generate_test_images)
+    add_dependencies(test_fat32_write generate_test_images)
+    add_dependencies(test_fat16_directories generate_test_images)
+    add_dependencies(test_fat32_directories generate_test_images)
+endif()
 
 # Add test targets
 add_test(TestCommonOperations test_common)
