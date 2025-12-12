@@ -41,23 +41,16 @@ jobs:
             ninja-build \
             dosfstools
 
-      - name: Generate test images
-        run: |
-          cd tests
-          chmod +x generate_test_images.sh
-          sudo ./generate_test_images.sh
-          # Change ownership back to runner user to avoid permission issues
-          sudo chown -R $USER:$USER data/
-
-      - name: Verify test images
+      - name: Verify test images (using committed images)
         run: |
           ls -lh tests/data/
           test -f tests/data/fat16.img || exit 1
           test -f tests/data/fat32.img || exit 1
+          echo "Using pre-generated test images from repository"
 
       - name: Configure CMake
-        # See: https://cmake.org/cmake/help/latest/manual/cmake.1.html
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_TESTING=YES
+        # Skip test image generation since we're using committed images
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DBUILD_TESTING=YES -DSKIP_TEST_IMAGE_GENERATION=ON
 
       - name: Build
         # See: https://cmake.org/cmake/help/latest/manual/cmake.1.html
