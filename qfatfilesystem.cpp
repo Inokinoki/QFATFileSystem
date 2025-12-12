@@ -549,7 +549,7 @@ QList<QFATFileInfo> QFATFileSystem::readDirectoryEntries(quint32 offset, quint32
 {
     QList<QFATFileInfo> files;
 
-    if (!m_device->isOpen() || m_device->atEnd()) {
+    if (!m_device->isOpen()) {
         return files;
     }
 
@@ -692,7 +692,7 @@ quint16 QFAT16FileSystem::readNextCluster(quint16 cluster)
 
 QList<QFATFileInfo> QFAT16FileSystem::listRootDirectory()
 {
-    if (!m_device->isOpen() || m_device->atEnd()) {
+    if (!m_device->isOpen()) {
         qWarning() << "File not open";
         return QList<QFATFileInfo>();
     }
@@ -1787,7 +1787,7 @@ quint32 QFAT32FileSystem::readNextCluster(quint32 cluster)
 
 QList<QFATFileInfo> QFAT32FileSystem::listRootDirectory()
 {
-    if (!m_device->isOpen() || m_device->atEnd()) {
+    if (!m_device->isOpen()) {
         qWarning() << "Device not open";
         return QList<QFATFileInfo>();
     }
