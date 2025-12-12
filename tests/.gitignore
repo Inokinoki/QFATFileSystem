@@ -1,2 +1,3 @@
 # Test images are now committed to the repository for CI/Docker compatibility
 # (Previously ignored, but now included so Docker builds work without loop device mounting)
+# data/*.img
