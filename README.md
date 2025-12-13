@@ -1,20 +1,36 @@
 # QFATFileSystem
 
 [![Code Quality](https://github.com/Inokinoki/QFATFileSystem/actions/workflows/code-quality.yml/badge.svg)](https://github.com/Inokinoki/QFATFileSystem/actions/workflows/code-quality.yml)
-[![Build and Test](https://github.com/Inokinoki/QFATFileSystem/actions/workflows/test.yml/badge.svg)](https://github.com/Inokinoki/QFATFileSystem/actions/workflows/test.yml)
+[![Linux CI](https://github.com/Inokinoki/QFATFileSystem/actions/workflows/ci-linux.yml/badge.svg)](https://github.com/Inokinoki/QFATFileSystem/actions/workflows/ci-linux.yml)
+[![macOS CI](https://github.com/Inokinoki/QFATFileSystem/actions/workflows/ci-macos.yml/badge.svg)](https://github.com/Inokinoki/QFATFileSystem/actions/workflows/ci-macos.yml)
 
-A Qt-based library for reading FAT16 and FAT32 filesystem images.
+A Qt-based library for reading and writing FAT16 and FAT32 filesystem images.
 
 ## Features
 
-- ✅ Read FAT16 filesystem images
-- ✅ Read FAT32 filesystem images
+### Read Operations
+- ✅ Read FAT16 and FAT32 filesystem images
 - ✅ List root directory contents
 - ✅ Navigate subdirectories
+- ✅ Read file contents by path
 - ✅ Parse file metadata (size, dates, attributes)
 - ✅ Long filename (VFAT/LFN) support
+- ✅ Check file/directory existence
+- ✅ Get file information
+
+### Write Operations
+- ✅ Write files to FAT16 and FAT32 images
+- ✅ Create directories
+- ✅ Delete files
+- ✅ Automatic cluster allocation and management
+- ✅ Long filename (LFN) generation with checksum
+- ✅ Short name generation (8.3 format)
+
+### General Features
 - ✅ Cross-platform (Linux, macOS, Windows)
-- TODO: Write to filesystem images
+- ✅ Qt5 and Qt6 support
+- ✅ Error handling with detailed error codes
+- ✅ Factory methods for easy instantiation
 
 ## Building
 
