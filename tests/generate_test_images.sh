@@ -127,7 +127,8 @@ create_fat_image() {
                 exit 1
             }
         else
-            mkfs.fat -F 32 -n "FAT32TEST" "${IMAGE_PATH}" || {
+            # FAT32 with specific parameters for proper operation
+            mkfs.fat -F 32 -s 2 -S 512 -n "FAT32TEST" "${IMAGE_PATH}" || {
                 echo_error "Failed to create FAT32 filesystem"
                 exit 1
             }
@@ -179,7 +180,11 @@ create_fat_image_mtools() {
             exit 1
         }
     else
-        mkfs.fat -F 32 -n "FAT32TEST" "${IMAGE_PATH}" > /dev/null 2>&1 || {
+        # FAT32 needs specific parameters for proper operation
+        # -s 2: 2 sectors per cluster (1KB clusters for 64MB image)
+        # -S 512: 512 bytes per sector
+        # -F 32: FAT32 filesystem
+        mkfs.fat -F 32 -s 2 -S 512 -n "FAT32TEST" "${IMAGE_PATH}" > /dev/null 2>&1 || {
             echo_error "Failed to create FAT32 filesystem"
             exit 1
         }
