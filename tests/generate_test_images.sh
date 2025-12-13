@@ -195,6 +195,11 @@ populate_test_content() {
     # Sync to ensure all data is written to disk
     sync
 
+    # Give the filesystem time to flush on Linux
+    if [[ $IS_MACOS -eq 0 ]]; then
+        sleep 1
+    fi
+
     echo_info "Test content created successfully"
 }
 

@@ -5,6 +5,9 @@
 #include <QDateTime>
 #include <QFile>
 #include <QList>
+#include <QMap>
+#include <QSharedPointer>
+#include <QScopedPointer>
 #include <QString>
 
 struct QFATFileInfo {
@@ -26,20 +29,52 @@ struct QFATFileInfo {
     }
 };
 
+// Error codes for FAT operations
+enum class QFATError {
+    None,
+    DeviceNotOpen,
+    InvalidPath,
+    FileNotFound,
+    DirectoryNotFound,
+    InvalidCluster,
+    ReadError,
+    WriteError,
+    NotImplemented,
+    InsufficientSpace,
+    InvalidFileName
+};
+
 // Base class with common FAT filesystem functionality
 class QFATFileSystem
 {
 public:
-    QFATFileSystem(QIODevice *device);
+    QFATFileSystem(QSharedPointer<QIODevice> device);
     virtual ~QFATFileSystem();
 
     // Pure virtual methods to be implemented by derived classes
     virtual QList<QFATFileInfo> listRootDirectory() = 0;
     virtual QList<QFATFileInfo> listDirectory(const QString &path) = 0;
 
+    // File reading/writing operations
+    virtual QByteArray readFile(const QString &path, QFATError &error) = 0;
+    virtual bool writeFile(const QString &path, const QByteArray &data, QFATError &error) = 0;
+    virtual bool deleteFile(const QString &path, QFATError &error) = 0;
+
+    // Directory operations
+    virtual bool createDirectory(const QString &path, QFATError &error) = 0;
+
+    // File/directory information
+    virtual bool exists(const QString &path) = 0;
+    virtual QFATFileInfo getFileInfo(const QString &path, QFATError &error) = 0;
+
+    // Error handling
+    QFATError lastError() const { return m_lastError; }
+    QString errorString() const;
+
 protected:
     QDataStream m_stream;
-    QIODevice *m_device;
+    QSharedPointer<QIODevice> m_device;
+    QFATError m_lastError;
 
     // Common helper methods
     QFATFileInfo parseDirectoryEntry(quint8 *entry, QString &longName);
@@ -54,41 +89,126 @@ protected:
     quint8 readNumberOfFATs();
     quint16 readRootEntryCount();
     QList<QFATFileInfo> readDirectoryEntries(quint32 offset, quint32 maxSize);
+
+    // Path traversal helpers
+    QStringList splitPath(const QString &path);
+    QFATFileInfo findInDirectory(const QList<QFATFileInfo> &entries, const QString &name);
+
+    // Writing helpers
+    void encodeFATDateTime(const QDateTime &dt, quint16 &date, quint16 &time);
+    QString generateShortName(const QString &longName, const QList<QFATFileInfo> &existingEntries);
+    quint8 calculateLFNChecksum(const QString &shortName);
+    int calculateLFNEntriesNeeded(const QString &longName);
+    void writeLFNEntry(quint8 *entry, const QString &longName, int sequence, quint8 checksum, bool isLast);
 };
 
 // FAT16 specific filesystem implementation
 class QFAT16FileSystem : public QFATFileSystem
 {
 public:
-    QFAT16FileSystem(QIODevice *device);
+    QFAT16FileSystem(QSharedPointer<QIODevice> device);
+
+    // Factory method
+    static QScopedPointer<QFAT16FileSystem> create(const QString &imagePath);
 
     // FAT16 specific methods
     QList<QFATFileInfo> listRootDirectory() override;
     QList<QFATFileInfo> listDirectory(const QString &path) override;
     QList<QFATFileInfo> listDirectory(quint16 cluster);
 
+    // File operations
+    QByteArray readFile(const QString &path, QFATError &error) override;
+    bool writeFile(const QString &path, const QByteArray &data, QFATError &error) override;
+    bool deleteFile(const QString &path, QFATError &error) override;
+
+    // Directory operations
+    bool createDirectory(const QString &path, QFATError &error) override;
+
+    // File/directory information
+    bool exists(const QString &path) override;
+    QFATFileInfo getFileInfo(const QString &path, QFATError &error) override;
+
 private:
     quint16 readRootDirSector();
     quint32 calculateRootDirOffset();
     quint32 calculateClusterOffset(quint16 cluster);
     quint16 readNextCluster(quint16 cluster);
+
+    // Path traversal
+    QFATFileInfo findFileByPath(const QString &path, QFATError &error);
+
+    // Cluster chain operations
+    QList<quint16> getClusterChain(quint16 startCluster);
+    QByteArray readClusterChain(quint16 startCluster, quint32 fileSize);
+
+    // Writing operations
+    quint16 findFreeCluster();
+    bool writeNextCluster(quint16 cluster, quint16 value);
+    bool writeClusterData(quint16 cluster, const QByteArray &data, quint32 offset = 0);
+    QList<quint16> allocateClusterChain(quint32 numClusters);
+    bool freeClusterChain(quint16 startCluster);
+    bool updateDirectoryEntry(const QString &parentPath, const QFATFileInfo &fileInfo);
+    bool createDirectoryEntry(quint32 dirOffset, const QFATFileInfo &fileInfo);
+    bool deleteDirectoryEntry(const QString &path);
+    bool isDirectoryEmpty(quint16 cluster);
+
+    // In-memory mapping for files written without LFN entries
+    // Maps long name (e.g., "testfile0.txt") to short name (e.g., "TESTF~31.TXT")
+    QMap<QString, QString> m_longToShortNameMap;
 };
 
 // FAT32 specific filesystem implementation
 class QFAT32FileSystem : public QFATFileSystem
 {
 public:
-    QFAT32FileSystem(QIODevice *device);
+    QFAT32FileSystem(QSharedPointer<QIODevice> device);
+
+    // Factory method
+    static QScopedPointer<QFAT32FileSystem> create(const QString &imagePath);
 
     // FAT32 specific methods
     QList<QFATFileInfo> listRootDirectory() override;
     QList<QFATFileInfo> listDirectory(const QString &path) override;
     QList<QFATFileInfo> listDirectory(quint32 cluster);
 
+    // File operations
+    QByteArray readFile(const QString &path, QFATError &error) override;
+    bool writeFile(const QString &path, const QByteArray &data, QFATError &error) override;
+    bool deleteFile(const QString &path, QFATError &error) override;
+
+    // Directory operations
+    bool createDirectory(const QString &path, QFATError &error) override;
+
+    // File/directory information
+    bool exists(const QString &path) override;
+    QFATFileInfo getFileInfo(const QString &path, QFATError &error) override;
+
 private:
     quint32 readRootDirCluster();
     quint32 calculateClusterOffset(quint32 cluster);
     quint32 readNextCluster(quint32 cluster);
+
+    // Path traversal
+    QFATFileInfo findFileByPath(const QString &path, QFATError &error);
+
+    // Cluster chain operations
+    QList<quint32> getClusterChain(quint32 startCluster);
+    QByteArray readClusterChain(quint32 startCluster, quint32 fileSize);
+
+    // Writing operations
+    quint32 findFreeCluster();
+    bool writeNextCluster(quint32 cluster, quint32 value);
+    bool writeClusterData(quint32 cluster, const QByteArray &data, quint32 offset = 0);
+    QList<quint32> allocateClusterChain(quint32 numClusters);
+    bool freeClusterChain(quint32 startCluster);
+    bool updateDirectoryEntry(const QString &parentPath, const QFATFileInfo &fileInfo);
+    bool createDirectoryEntry(quint32 dirOffset, const QFATFileInfo &fileInfo);
+    bool deleteDirectoryEntry(const QString &path);
+    bool isDirectoryEmpty(quint32 cluster);
+
+    // In-memory mapping for files written without LFN entries
+    // Maps long name (e.g., "testfile0.txt") to short name (e.g., "TESTF~31.TXT")
+    QMap<QString, QString> m_longToShortNameMap;
 };
 
 #endif

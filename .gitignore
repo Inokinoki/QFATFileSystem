@@ -56,3 +56,5 @@ build/
 
 # Other files
 .DS_Store
+
+.cache/
