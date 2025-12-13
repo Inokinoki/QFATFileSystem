@@ -49,63 +49,63 @@ make
 
 ## Testing
 
-The tests can be enabled by setting `BUILD_TESTING` to `ON` in the CMake configuration:
+### Prerequisites
 
+**Linux:**
 ```bash
-cmake .. -DBUILD_TESTING=ON
-make
-```
-
-### Test Image Generation
-
-Tests require FAT16 and FAT32 test images. The `generate_test_images.sh` script automatically creates these images and supports multiple environments:
-
-#### Development Environment Dependencies
-
-**Linux (Native):**
-```bash
-# Required for test image generation
+# Ubuntu/Debian
 sudo apt-get install dosfstools mtools
 
-# mtools is recommended for non-privileged operation
-# Without mtools, sudo privileges are required for loop mounting
-```
+# Fedora/RHEL
+sudo dnf install dosfstools mtools
 
-**Linux (Docker):**
-```bash
-# Install in Dockerfile
-RUN apt-get update && apt-get install -y \
-    dosfstools \
-    mtools
+# Arch Linux
+sudo pacman -S dosfstools mtools
 ```
 
 **macOS:**
 ```bash
-# Built-in tools are used (hdiutil, newfs_msdos)
-# No additional installation needed
+# Built-in tools (hdiutil, newfs_msdos) - no installation needed
 ```
 
-#### Generating Test Images
+### Building and Running Tests
 
-The script automatically detects the environment and chooses the best method:
+Tests are automatically enabled and test images are generated during the build:
+
+```bash
+# Create build directory
+mkdir build && cd build
+
+# Configure with testing enabled (default)
+cmake .. -DBUILD_TESTING=ON
+
+# Build (this automatically generates test images)
+make
+
+# Run tests
+ctest --output-on-failure --verbose
+```
+
+### How Test Image Generation Works
+
+CMake automatically:
+1. Checks for required tools (mtools on Linux, hdiutil on macOS)
+2. Generates FAT16 and FAT32 test images during build
+3. Copies images to the build directory
+
+**Methods used:**
+- **Linux**: `mtools` (no sudo required, no loop mounting)
+- **macOS**: `hdiutil` (native built-in tools)
+
+### Manual Test Image Generation
+
+You can also manually generate test images:
 
 ```bash
 cd tests
 ./generate_test_images.sh
 ```
 
-**Methods:**
-- **Docker/Non-privileged**: Uses `mtools` (no loop mounting required)
-- **Linux with sudo**: Uses loop device mounting
-- **macOS**: Uses `hdiutil`
-
-### Running Tests
-
-Once test images are generated, run tests using `ctest`:
-
-```bash
-ctest --output-on-failure --verbose
-```
 
 ## Usage Example
 
