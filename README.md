@@ -49,25 +49,63 @@ make
 
 ## Testing
 
-The tests can be enabled by setting `BUILD_TESTING` to `ON` in the CMake configuration:
+### Prerequisites
 
+**Linux:**
 ```bash
-cmake .. -DBUILD_TESTING=ON
-make
+# Ubuntu/Debian
+sudo apt-get install dosfstools mtools
+
+# Fedora/RHEL
+sudo dnf install dosfstools mtools
+
+# Arch Linux
+sudo pacman -S dosfstools mtools
 ```
 
-### Additional Requirements for Testing
+**macOS:**
+```bash
+# Built-in tools (hdiutil, newfs_msdos) - no installation needed
+```
 
-- **Linux**: `dosfstools` package (for `mkfs.fat`)
-- **macOS**: Built-in `hdiutil` and `newfs_msdos` (no additional installation needed)
+### Building and Running Tests
+
+Tests are automatically enabled and test images are generated during the build:
+
+```bash
+# Create build directory
+mkdir build && cd build
+
+# Configure with testing enabled (default)
+cmake .. -DBUILD_TESTING=ON
+
+# Build (this automatically generates test images)
+make
 
 # Run tests
-
-The tests can be run using the `ctest` command:
-
-```bash
 ctest --output-on-failure --verbose
 ```
+
+### How Test Image Generation Works
+
+CMake automatically:
+1. Checks for required tools (mtools on Linux, hdiutil on macOS)
+2. Generates FAT16 and FAT32 test images during build
+3. Copies images to the build directory
+
+**Methods used:**
+- **Linux**: `mtools` (no sudo required, no loop mounting)
+- **macOS**: `hdiutil` (native built-in tools)
+
+### Manual Test Image Generation
+
+You can also manually generate test images:
+
+```bash
+cd tests
+./generate_test_images.sh
+```
+
 
 ## Usage Example
 
