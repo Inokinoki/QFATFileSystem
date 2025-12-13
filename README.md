@@ -56,14 +56,52 @@ cmake .. -DBUILD_TESTING=ON
 make
 ```
 
-### Additional Requirements for Testing
+### Test Image Generation
 
-- **Linux**: `dosfstools` package (for `mkfs.fat`)
-- **macOS**: Built-in `hdiutil` and `newfs_msdos` (no additional installation needed)
+Tests require FAT16 and FAT32 test images. The `generate_test_images.sh` script automatically creates these images and supports multiple environments:
 
-# Run tests
+#### Development Environment Dependencies
 
-The tests can be run using the `ctest` command:
+**Linux (Native):**
+```bash
+# Required for test image generation
+sudo apt-get install dosfstools mtools
+
+# mtools is recommended for non-privileged operation
+# Without mtools, sudo privileges are required for loop mounting
+```
+
+**Linux (Docker):**
+```bash
+# Install in Dockerfile
+RUN apt-get update && apt-get install -y \
+    dosfstools \
+    mtools
+```
+
+**macOS:**
+```bash
+# Built-in tools are used (hdiutil, newfs_msdos)
+# No additional installation needed
+```
+
+#### Generating Test Images
+
+The script automatically detects the environment and chooses the best method:
+
+```bash
+cd tests
+./generate_test_images.sh
+```
+
+**Methods:**
+- **Docker/Non-privileged**: Uses `mtools` (no loop mounting required)
+- **Linux with sudo**: Uses loop device mounting
+- **macOS**: Uses `hdiutil`
+
+### Running Tests
+
+Once test images are generated, run tests using `ctest`:
 
 ```bash
 ctest --output-on-failure --verbose
