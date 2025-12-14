@@ -170,6 +170,7 @@ private:
     bool updateDirectoryEntry(const QString &parentPath, const QFATFileInfo &fileInfo);
     bool createDirectoryEntry(quint32 dirOffset, const QFATFileInfo &fileInfo);
     bool deleteDirectoryEntry(const QString &path);
+    QString modifyDirectoryEntryName(const QString &path, const QString &newName);
     bool isDirectoryEmpty(quint16 cluster);
 
     // In-memory mapping for files written without LFN entries
@@ -234,6 +235,7 @@ private:
     bool updateDirectoryEntry(const QString &parentPath, const QFATFileInfo &fileInfo);
     bool createDirectoryEntry(quint32 dirOffset, const QFATFileInfo &fileInfo);
     bool deleteDirectoryEntry(const QString &path);
+    QString modifyDirectoryEntryName(const QString &path, const QString &newName);
     bool isDirectoryEmpty(quint32 cluster);
 
     // In-memory mapping for files written without LFN entries
