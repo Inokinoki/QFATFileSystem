@@ -10,7 +10,41 @@ set(TEST_DATA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/data")
 # Option to skip test image generation (useful for Docker builds where images are pre-generated)
 option(SKIP_TEST_IMAGE_GENERATION "Skip automatic test image generation" OFF)
 
+# Check for required tools
 if(NOT SKIP_TEST_IMAGE_GENERATION)
+    if(UNIX AND NOT APPLE)
+        # Linux: Check for dosfstools and mtools
+        find_program(MKFS_FAT mkfs.fat)
+        find_program(MTOOLS_MMD mmd)
+
+        if(NOT MKFS_FAT)
+            message(WARNING "mkfs.fat not found. Install dosfstools package.\n"
+                           "  Ubuntu/Debian: sudo apt-get install dosfstools mtools\n"
+                           "  Fedora/RHEL: sudo dnf install dosfstools mtools\n"
+                           "  Arch Linux: sudo pacman -S dosfstools mtools")
+        endif()
+
+        if(NOT MTOOLS_MMD)
+            message(WARNING "mtools not found. Install mtools package.\n"
+                           "  Ubuntu/Debian: sudo apt-get install mtools\n"
+                           "  Fedora/RHEL: sudo dnf install mtools\n"
+                           "  Arch Linux: sudo pacman -S mtools")
+        endif()
+
+        if(MKFS_FAT AND MTOOLS_MMD)
+            message(STATUS "Found mkfs.fat: ${MKFS_FAT}")
+            message(STATUS "Found mtools: ${MTOOLS_MMD}")
+        endif()
+    elseif(APPLE)
+        # macOS: Check for hdiutil (should be built-in)
+        find_program(HDIUTIL hdiutil)
+        if(NOT HDIUTIL)
+            message(WARNING "hdiutil not found (this should be available on macOS)")
+        else()
+            message(STATUS "Found hdiutil: ${HDIUTIL}")
+        endif()
+    endif()
+
     # Add custom command to generate test images
     add_custom_command(
         OUTPUT ${TEST_DATA_DIR}/fat16.img ${TEST_DATA_DIR}/fat32.img
@@ -50,6 +84,8 @@ add_executable(test_fat16_write test_fat16_write.cpp)
 add_executable(test_fat32_write test_fat32_write.cpp)
 add_executable(test_fat16_directories test_fat16_directories.cpp)
 add_executable(test_fat32_directories test_fat32_directories.cpp)
+add_executable(test_fat16_advanced test_fat16_advanced.cpp)
+add_executable(test_fat32_advanced test_fat32_advanced.cpp)
 
 # Make tests depend on image generation (only if not skipping)
 if(NOT SKIP_TEST_IMAGE_GENERATION)
@@ -60,6 +96,8 @@ if(NOT SKIP_TEST_IMAGE_GENERATION)
     add_dependencies(test_fat32_write generate_test_images)
     add_dependencies(test_fat16_directories generate_test_images)
     add_dependencies(test_fat32_directories generate_test_images)
+    add_dependencies(test_fat16_advanced generate_test_images)
+    add_dependencies(test_fat32_advanced generate_test_images)
 endif()
 
 # Add test targets
@@ -70,6 +108,8 @@ add_test(TestFAT16WriteOperations test_fat16_write)
 add_test(TestFAT32WriteOperations test_fat32_write)
 add_test(TestFAT16DirectoryOperations test_fat16_directories)
 add_test(TestFAT32DirectoryOperations test_fat32_directories)
+add_test(TestFAT16AdvancedOperations test_fat16_advanced)
+add_test(TestFAT32AdvancedOperations test_fat32_advanced)
 
 # Link test libraries
 target_link_libraries(test_common ${test_libraries})
@@ -79,4 +119,6 @@ target_link_libraries(test_fat16_write ${test_libraries})
 target_link_libraries(test_fat32_write ${test_libraries})
 target_link_libraries(test_fat16_directories ${test_libraries})
 target_link_libraries(test_fat32_directories ${test_libraries})
+target_link_libraries(test_fat16_advanced ${test_libraries})
+target_link_libraries(test_fat32_advanced ${test_libraries})
 

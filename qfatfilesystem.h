@@ -57,15 +57,25 @@ public:
 
     // File reading/writing operations
     virtual QByteArray readFile(const QString &path, QFATError &error) = 0;
+    virtual QByteArray readFilePartial(const QString &path, quint32 offset, quint32 length, QFATError &error) = 0;
     virtual bool writeFile(const QString &path, const QByteArray &data, QFATError &error) = 0;
     virtual bool deleteFile(const QString &path, QFATError &error) = 0;
 
+    // File/directory operations
+    virtual bool renameFile(const QString &oldPath, const QString &newPath, QFATError &error) = 0;
+    virtual bool moveFile(const QString &sourcePath, const QString &destPath, QFATError &error) = 0;
+
     // Directory operations
     virtual bool createDirectory(const QString &path, QFATError &error) = 0;
+    virtual bool deleteDirectory(const QString &path, bool recursive, QFATError &error) = 0;
 
     // File/directory information
     virtual bool exists(const QString &path) = 0;
     virtual QFATFileInfo getFileInfo(const QString &path, QFATError &error) = 0;
+
+    // Filesystem information
+    virtual quint32 getFreeSpace(QFATError &error) = 0;
+    virtual quint32 getTotalSpace(QFATError &error) = 0;
 
     // Error handling
     QFATError lastError() const { return m_lastError; }
@@ -118,15 +128,25 @@ public:
 
     // File operations
     QByteArray readFile(const QString &path, QFATError &error) override;
+    QByteArray readFilePartial(const QString &path, quint32 offset, quint32 length, QFATError &error) override;
     bool writeFile(const QString &path, const QByteArray &data, QFATError &error) override;
     bool deleteFile(const QString &path, QFATError &error) override;
 
+    // File/directory operations
+    bool renameFile(const QString &oldPath, const QString &newPath, QFATError &error) override;
+    bool moveFile(const QString &sourcePath, const QString &destPath, QFATError &error) override;
+
     // Directory operations
     bool createDirectory(const QString &path, QFATError &error) override;
+    bool deleteDirectory(const QString &path, bool recursive, QFATError &error) override;
 
     // File/directory information
     bool exists(const QString &path) override;
     QFATFileInfo getFileInfo(const QString &path, QFATError &error) override;
+
+    // Filesystem information
+    quint32 getFreeSpace(QFATError &error) override;
+    quint32 getTotalSpace(QFATError &error) override;
 
 private:
     quint16 readRootDirSector();
@@ -150,6 +170,7 @@ private:
     bool updateDirectoryEntry(const QString &parentPath, const QFATFileInfo &fileInfo);
     bool createDirectoryEntry(quint32 dirOffset, const QFATFileInfo &fileInfo);
     bool deleteDirectoryEntry(const QString &path);
+    QString modifyDirectoryEntryName(const QString &path, const QString &newName);
     bool isDirectoryEmpty(quint16 cluster);
 
     // In-memory mapping for files written without LFN entries
@@ -173,15 +194,25 @@ public:
 
     // File operations
     QByteArray readFile(const QString &path, QFATError &error) override;
+    QByteArray readFilePartial(const QString &path, quint32 offset, quint32 length, QFATError &error) override;
     bool writeFile(const QString &path, const QByteArray &data, QFATError &error) override;
     bool deleteFile(const QString &path, QFATError &error) override;
 
+    // File/directory operations
+    bool renameFile(const QString &oldPath, const QString &newPath, QFATError &error) override;
+    bool moveFile(const QString &sourcePath, const QString &destPath, QFATError &error) override;
+
     // Directory operations
     bool createDirectory(const QString &path, QFATError &error) override;
+    bool deleteDirectory(const QString &path, bool recursive, QFATError &error) override;
 
     // File/directory information
     bool exists(const QString &path) override;
     QFATFileInfo getFileInfo(const QString &path, QFATError &error) override;
+
+    // Filesystem information
+    quint32 getFreeSpace(QFATError &error) override;
+    quint32 getTotalSpace(QFATError &error) override;
 
 private:
     quint32 readRootDirCluster();
@@ -204,6 +235,7 @@ private:
     bool updateDirectoryEntry(const QString &parentPath, const QFATFileInfo &fileInfo);
     bool createDirectoryEntry(quint32 dirOffset, const QFATFileInfo &fileInfo);
     bool deleteDirectoryEntry(const QString &path);
+    QString modifyDirectoryEntryName(const QString &path, const QString &newName);
     bool isDirectoryEmpty(quint32 cluster);
 
     // In-memory mapping for files written without LFN entries

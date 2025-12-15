@@ -1522,6 +1522,170 @@ bool QFAT16FileSystem::deleteDirectoryEntry(const QString &path)
     return m_stream.status() == QDataStream::Ok;
 }
 
+QString QFAT16FileSystem::modifyDirectoryEntryName(const QString &path, const QString &newName)
+{
+    if (!m_device->isOpen()) {
+        return QString();
+    }
+
+    // Parse path to get parent and filename
+    QStringList parts = splitPath(path);
+    if (parts.isEmpty()) {
+        return QString();
+    }
+
+    QString fileName = parts.last();
+    QString parentPath;
+
+    if (parts.size() > 1) {
+        parts.removeLast();
+        parentPath = "/" + parts.join("/");
+    } else {
+        parentPath = "/";
+    }
+
+    // Find the directory offset and max entries
+    quint32 dirOffset;
+    quint32 maxEntries;
+
+    if (parentPath.isEmpty() || parentPath == "/" || parentPath == "\\") {
+        dirOffset = calculateRootDirOffset();
+        maxEntries = readRootEntryCount();
+    } else {
+        QFATError error;
+        QFATFileInfo dirInfo = findFileByPath(parentPath, error);
+        if (error != QFATError::None || !dirInfo.isDirectory) {
+            return QString();
+        }
+        dirOffset = calculateClusterOffset(static_cast<quint16>(dirInfo.cluster));
+
+        // For cluster-based directories, calculate max entries
+        quint16 bytesPerSector = readBytesPerSector();
+        quint8 sectorsPerCluster = readSectorsPerCluster();
+        quint32 clusterSize = bytesPerSector * sectorsPerCluster;
+        maxEntries = clusterSize / ENTRY_SIZE;
+    }
+
+    // Get existing entries to generate a proper short name
+    QList<QFATFileInfo> existingEntries;
+    if (parentPath.isEmpty() || parentPath == "/" || parentPath == "\\") {
+        existingEntries = listRootDirectory();
+    } else {
+        QFATError error;
+        QFATFileInfo parentInfo = findFileByPath(parentPath, error);
+        if (error == QFATError::None && parentInfo.isDirectory) {
+            existingEntries = listDirectory(static_cast<quint16>(parentInfo.cluster));
+        }
+    }
+
+    QString newShortName = generateShortName(newName, existingEntries);
+
+    // Scan raw directory data to find the entry
+    quint32 entryOffset = dirOffset;
+    bool found = false;
+    quint32 foundOffset = 0;
+
+    for (quint32 i = 0; i < maxEntries; i++) {
+        m_stream.device()->seek(entryOffset);
+        quint8 entryData[ENTRY_SIZE];
+        m_stream.readRawData(reinterpret_cast<char*>(entryData), ENTRY_SIZE);
+
+        quint8 firstByte = entryData[ENTRY_NAME_OFFSET];
+
+        // Stop at end of directory
+        if (firstByte == ENTRY_END_OF_DIRECTORY) {
+            break;
+        }
+
+        // Skip deleted entries
+        if (firstByte == ENTRY_DELETED) {
+            entryOffset += ENTRY_SIZE;
+            continue;
+        }
+
+        // Skip long file name entries
+        if (isLongFileNameEntry(entryData)) {
+            entryOffset += ENTRY_SIZE;
+            continue;
+        }
+
+        // Parse the entry name
+        QString name8_3;
+        int nameEnd = 7;
+        while (nameEnd >= 0 && entryData[nameEnd] == ' ')
+            nameEnd--;
+        for (int j = 0; j <= nameEnd; j++) {
+            name8_3.append(QChar(entryData[j]));
+        }
+
+        QString ext;
+        int extEnd = 10;
+        while (extEnd >= 8 && entryData[extEnd] == ' ')
+            extEnd--;
+        for (int j = 8; j <= extEnd; j++) {
+            ext.append(QChar(entryData[j]));
+        }
+
+        if (!ext.isEmpty()) {
+            if (!name8_3.isEmpty()) {
+                name8_3.append('.');
+            }
+            name8_3.append(ext);
+        }
+
+        // Check if this matches the file we're looking for
+        if (name8_3.toUpper() == fileName.toUpper()) {
+            found = true;
+            foundOffset = entryOffset;
+            break;
+        }
+
+        entryOffset += ENTRY_SIZE;
+    }
+
+    if (!found) {
+        return QString();
+    }
+
+    // Update the entry name
+    m_stream.device()->seek(foundOffset);
+    quint8 newEntryData[ENTRY_SIZE];
+    m_stream.readRawData(reinterpret_cast<char*>(newEntryData), ENTRY_SIZE);
+
+    // Parse short name (8.3 format)
+    QStringList nameParts = newShortName.toUpper().split('.');
+    QString baseName = nameParts.isEmpty() ? "" : nameParts[0];
+    QString extension = nameParts.size() > 1 ? nameParts[1] : "";
+
+    // Fill name (8 bytes, space-padded)
+    for (int i = 0; i < 8; i++) {
+        if (i < baseName.length()) {
+            newEntryData[i] = baseName[i].toLatin1();
+        } else {
+            newEntryData[i] = ' ';
+        }
+    }
+
+    // Fill extension (3 bytes, space-padded)
+    for (int i = 0; i < 3; i++) {
+        if (i < extension.length()) {
+            newEntryData[8 + i] = extension[i].toLatin1();
+        } else {
+            newEntryData[8 + i] = ' ';
+        }
+    }
+
+    // Write the modified entry back
+    m_stream.device()->seek(foundOffset);
+    m_stream.writeRawData(reinterpret_cast<char*>(newEntryData), ENTRY_SIZE);
+
+    if (m_stream.status() != QDataStream::Ok) {
+        return QString();
+    }
+
+    return newShortName;
+}
+
 bool QFAT16FileSystem::isDirectoryEmpty(quint16 cluster)
 {
     if (cluster < 2) {
@@ -1715,6 +1879,326 @@ bool QFAT16FileSystem::createDirectory(const QString &path, QFATError &error)
     }
 
     return true;
+}
+
+QByteArray QFAT16FileSystem::readFilePartial(const QString &path, quint32 offset, quint32 length, QFATError &error)
+{
+    error = QFATError::None;
+
+    QFATFileInfo fileInfo = findFileByPath(path, error);
+    if (error != QFATError::None) {
+        m_lastError = error;
+        return QByteArray();
+    }
+
+    if (fileInfo.isDirectory) {
+        error = QFATError::InvalidPath;
+        m_lastError = error;
+        return QByteArray();
+    }
+
+    // Empty file or offset beyond file size
+    if (fileInfo.size == 0 || offset >= fileInfo.size || fileInfo.cluster < 2) {
+        return QByteArray();
+    }
+
+    // Adjust length if it exceeds file size
+    quint32 actualLength = qMin(length, fileInfo.size - offset);
+
+    // Read the entire file first (we can optimize this later to skip clusters)
+    QByteArray fullData = readClusterChain(static_cast<quint16>(fileInfo.cluster), fileInfo.size);
+    if (fullData.isEmpty() && fileInfo.size > 0) {
+        error = QFATError::ReadError;
+        m_lastError = error;
+        return QByteArray();
+    }
+
+    // Return the requested portion
+    return fullData.mid(offset, actualLength);
+}
+
+bool QFAT16FileSystem::renameFile(const QString &oldPath, const QString &newPath, QFATError &error)
+{
+    error = QFATError::None;
+
+    if (!m_device->isOpen()) {
+        error = QFATError::DeviceNotOpen;
+        m_lastError = error;
+        return false;
+    }
+
+    // Check if source exists
+    QFATFileInfo fileInfo = findFileByPath(oldPath, error);
+    if (error != QFATError::None) {
+        m_lastError = error;
+        return false;
+    }
+
+    // Parse old and new paths
+    QStringList oldParts = splitPath(oldPath);
+    QStringList newParts = splitPath(newPath);
+
+    if (oldParts.isEmpty() || newParts.isEmpty()) {
+        error = QFATError::InvalidPath;
+        m_lastError = error;
+        return false;
+    }
+
+    QString oldParentPath = oldParts.size() > 1 ? "/" + oldParts.mid(0, oldParts.size() - 1).join("/") : "/";
+    QString newParentPath = newParts.size() > 1 ? "/" + newParts.mid(0, newParts.size() - 1).join("/") : "/";
+
+    // If parent directories differ, this is a move operation
+    if (oldParentPath != newParentPath) {
+        return moveFile(oldPath, newPath, error);
+    }
+
+    // Same directory - just rename
+    QString newName = newParts.last();
+
+    // Check if new name already exists
+    QFATError existError;
+    findFileByPath(newPath, existError);
+    if (existError == QFATError::None) {
+        error = QFATError::InvalidPath; // Already exists
+        m_lastError = error;
+        return false;
+    }
+
+    // Update the directory entry name in place
+    QString newShortName = modifyDirectoryEntryName(oldPath, newName);
+    if (newShortName.isEmpty()) {
+        error = QFATError::WriteError;
+        m_lastError = error;
+        return false;
+    }
+
+    // Update in-memory mapping
+    QString oldNameLower = oldParts.last().toLower();
+    m_longToShortNameMap.remove(oldNameLower);
+    m_longToShortNameMap[newName.toLower()] = newShortName;
+
+    return true;
+}
+
+bool QFAT16FileSystem::moveFile(const QString &sourcePath, const QString &destPath, QFATError &error)
+{
+    error = QFATError::None;
+
+    if (!m_device->isOpen()) {
+        error = QFATError::DeviceNotOpen;
+        m_lastError = error;
+        return false;
+    }
+
+    // Read the file data
+    QFATFileInfo sourceInfo = findFileByPath(sourcePath, error);
+    if (error != QFATError::None) {
+        m_lastError = error;
+        return false;
+    }
+
+    // Check if destination already exists
+    QFATError destError;
+    findFileByPath(destPath, destError);
+    if (destError == QFATError::None) {
+        error = QFATError::InvalidPath; // Destination already exists
+        m_lastError = error;
+        return false;
+    }
+
+    if (sourceInfo.isDirectory) {
+        // For directories, we need to update the cluster reference
+        // Create new directory entry in destination
+        QStringList destParts = splitPath(destPath);
+        QString destParentPath = destParts.size() > 1 ? "/" + destParts.mid(0, destParts.size() - 1).join("/") : "/";
+
+        // Verify destination parent exists
+        if (destParentPath != "/") {
+            QFATError parentError;
+            QFATFileInfo parentInfo = findFileByPath(destParentPath, parentError);
+            if (parentError != QFATError::None || !parentInfo.isDirectory) {
+                error = QFATError::DirectoryNotFound;
+                m_lastError = error;
+                return false;
+            }
+        }
+
+        // Create new entry with same cluster
+        sourceInfo.longName = destParts.last();
+        if (!updateDirectoryEntry(destParentPath, sourceInfo)) {
+            error = QFATError::WriteError;
+            m_lastError = error;
+            return false;
+        }
+
+        // Delete old entry (but don't free clusters)
+        if (!deleteDirectoryEntry(sourcePath)) {
+            error = QFATError::WriteError;
+            m_lastError = error;
+            return false;
+        }
+    } else {
+        // For files, verify destination parent exists
+        QStringList destParts = splitPath(destPath);
+        QString destParentPath = destParts.size() > 1 ? "/" + destParts.mid(0, destParts.size() - 1).join("/") : "/";
+
+        if (destParentPath != "/") {
+            QFATError parentError;
+            QFATFileInfo parentInfo = findFileByPath(destParentPath, parentError);
+            if (parentError != QFATError::None || !parentInfo.isDirectory) {
+                error = QFATError::DirectoryNotFound;
+                m_lastError = error;
+                return false;
+            }
+        }
+
+        // Read and write to new location
+        QByteArray data = readFile(sourcePath, error);
+        if (error != QFATError::None) {
+            m_lastError = error;
+            return false;
+        }
+
+        if (!writeFile(destPath, data, error)) {
+            m_lastError = error;
+            return false;
+        }
+
+        // Delete source file
+        if (!deleteFile(sourcePath, error)) {
+            m_lastError = error;
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool QFAT16FileSystem::deleteDirectory(const QString &path, bool recursive, QFATError &error)
+{
+    error = QFATError::None;
+
+    if (!m_device->isOpen()) {
+        error = QFATError::DeviceNotOpen;
+        m_lastError = error;
+        return false;
+    }
+
+    // Find the directory
+    QFATFileInfo dirInfo = findFileByPath(path, error);
+    if (error != QFATError::None) {
+        m_lastError = error;
+        return false;
+    }
+
+    if (!dirInfo.isDirectory) {
+        error = QFATError::InvalidPath;
+        m_lastError = error;
+        return false;
+    }
+
+    // List directory contents
+    QList<QFATFileInfo> entries = listDirectory(static_cast<quint16>(dirInfo.cluster));
+
+    if (recursive) {
+        // Delete all contents recursively
+        for (const QFATFileInfo &entry : entries) {
+            // Skip . and .. entries
+            if (entry.name == "." || entry.name == "..") {
+                continue;
+            }
+
+            QString fullPath = path + "/" + entry.longName;
+
+            if (entry.isDirectory) {
+                if (!deleteDirectory(fullPath, true, error)) {
+                    m_lastError = error;
+                    return false;
+                }
+            } else {
+                if (!deleteFile(fullPath, error)) {
+                    m_lastError = error;
+                    return false;
+                }
+            }
+        }
+    } else {
+        // Check if directory is empty (only . and .. entries)
+        for (const QFATFileInfo &entry : entries) {
+            if (entry.name != "." && entry.name != "..") {
+                error = QFATError::InvalidPath; // Directory not empty
+                m_lastError = error;
+                return false;
+            }
+        }
+    }
+
+    // Use deleteFile to remove the empty directory
+    return deleteFile(path, error);
+}
+
+quint32 QFAT16FileSystem::getFreeSpace(QFATError &error)
+{
+    error = QFATError::None;
+
+    if (!m_device->isOpen()) {
+        error = QFATError::DeviceNotOpen;
+        m_lastError = error;
+        return 0;
+    }
+
+    quint16 bytesPerSector = readBytesPerSector();
+    quint8 sectorsPerCluster = readSectorsPerCluster();
+    quint16 reservedSectors = readReservedSectors();
+
+    m_stream.device()->seek(BPB_SECTORS_PER_FAT_OFFSET);
+    quint16 sectorsPerFAT;
+    m_stream >> sectorsPerFAT;
+
+    quint32 fatOffset = reservedSectors * bytesPerSector;
+    quint32 totalClusters = (sectorsPerFAT * bytesPerSector) / 2; // 2 bytes per FAT16 entry
+    quint32 clusterSize = sectorsPerCluster * bytesPerSector;
+    quint32 freeClusters = 0;
+
+    // Count free clusters
+    for (quint16 cluster = 2; cluster < totalClusters && cluster < 0xFFF0; cluster++) {
+        m_stream.device()->seek(fatOffset + cluster * 2);
+        quint16 value;
+        m_stream >> value;
+
+        if (value == 0) {
+            freeClusters++;
+        }
+    }
+
+    return freeClusters * clusterSize;
+}
+
+quint32 QFAT16FileSystem::getTotalSpace(QFATError &error)
+{
+    error = QFATError::None;
+
+    if (!m_device->isOpen()) {
+        error = QFATError::DeviceNotOpen;
+        m_lastError = error;
+        return 0;
+    }
+
+    quint16 bytesPerSector = readBytesPerSector();
+    quint8 sectorsPerCluster = readSectorsPerCluster();
+    quint16 reservedSectors = readReservedSectors();
+
+    m_stream.device()->seek(BPB_SECTORS_PER_FAT_OFFSET);
+    quint16 sectorsPerFAT;
+    m_stream >> sectorsPerFAT;
+
+    quint32 totalClusters = (sectorsPerFAT * bytesPerSector) / 2; // 2 bytes per FAT16 entry
+    quint32 clusterSize = sectorsPerCluster * bytesPerSector;
+
+    // Total usable clusters (starting from cluster 2)
+    quint32 usableClusters = totalClusters - 2;
+
+    return usableClusters * clusterSize;
 }
 
 // ============================================================================
@@ -2589,6 +3073,180 @@ bool QFAT32FileSystem::deleteDirectoryEntry(const QString &path)
     return m_stream.status() == QDataStream::Ok;
 }
 
+QString QFAT32FileSystem::modifyDirectoryEntryName(const QString &path, const QString &newName)
+{
+    if (!m_device->isOpen()) {
+        return QString();
+    }
+
+    // Parse path to get parent and filename
+    QStringList parts = splitPath(path);
+    if (parts.isEmpty()) {
+        return QString();
+    }
+
+    QString fileName = parts.last();
+    QString parentPath;
+
+    if (parts.size() > 1) {
+        parts.removeLast();
+        parentPath = "/" + parts.join("/");
+    } else {
+        parentPath = "/";
+    }
+
+    // Check if there's a long-to-short name mapping for this file
+    QString searchName = fileName;
+    if (m_longToShortNameMap.contains(fileName.toLower())) {
+        searchName = m_longToShortNameMap[fileName.toLower()];
+        qDebug() << "[modifyDirectoryEntryName] Using mapped name:" << searchName << "for" << fileName;
+    }
+
+    // Get existing entries to generate a proper short name
+    QList<QFATFileInfo> existingEntries;
+    if (parentPath.isEmpty() || parentPath == "/" || parentPath == "\\") {
+        existingEntries = listRootDirectory();
+    } else {
+        QFATError error;
+        QFATFileInfo parentInfo = findFileByPath(parentPath, error);
+        if (error == QFATError::None && parentInfo.isDirectory) {
+            existingEntries = listDirectory(parentInfo.cluster);
+        }
+    }
+
+    QString newShortName = generateShortName(newName, existingEntries);
+
+    // Find the parent directory cluster
+    quint32 startCluster;
+    if (parentPath.isEmpty() || parentPath == "/" || parentPath == "\\") {
+        startCluster = readRootDirCluster();
+    } else {
+        QFATError error;
+        QFATFileInfo dirInfo = findFileByPath(parentPath, error);
+        if (error != QFATError::None || !dirInfo.isDirectory) {
+            return QString();
+        }
+        startCluster = dirInfo.cluster;
+    }
+
+    // Scan through the directory clusters to find the entry
+    quint16 bytesPerSector = readBytesPerSector();
+    quint8 sectorsPerCluster = readSectorsPerCluster();
+    quint32 clusterSize = bytesPerSector * sectorsPerCluster;
+    quint32 entriesPerCluster = clusterSize / ENTRY_SIZE;
+
+    quint32 currentCluster = startCluster;
+    bool found = false;
+    quint32 foundOffset = 0;
+
+    while (currentCluster >= 2 && currentCluster < 0x0FFFFFF8) {
+        quint32 clusterOffset = calculateClusterOffset(currentCluster);
+        quint32 entryOffset = clusterOffset;
+
+        for (quint32 i = 0; i < entriesPerCluster; i++) {
+            m_stream.device()->seek(entryOffset);
+            quint8 entryData[ENTRY_SIZE];
+            m_stream.readRawData(reinterpret_cast<char*>(entryData), ENTRY_SIZE);
+
+            quint8 firstByte = entryData[ENTRY_NAME_OFFSET];
+
+            if (firstByte == ENTRY_END_OF_DIRECTORY) {
+                break;
+            }
+
+            if (firstByte == ENTRY_DELETED) {
+                entryOffset += ENTRY_SIZE;
+                continue;
+            }
+
+            if (isLongFileNameEntry(entryData)) {
+                entryOffset += ENTRY_SIZE;
+                continue;
+            }
+
+            // Parse the short name
+            QString name8_3;
+            int nameEnd = 7;
+            while (nameEnd >= 0 && entryData[nameEnd] == ' ')
+                nameEnd--;
+            for (int j = 0; j <= nameEnd; j++) {
+                name8_3.append(QChar(entryData[j]));
+            }
+
+            QString ext;
+            int extEnd = 10;
+            while (extEnd >= 8 && entryData[extEnd] == ' ')
+                extEnd--;
+            for (int j = 8; j <= extEnd; j++) {
+                ext.append(QChar(entryData[j]));
+            }
+
+            if (!ext.isEmpty()) {
+                if (!name8_3.isEmpty()) {
+                    name8_3.append('.');
+                }
+                name8_3.append(ext);
+            }
+
+            if (name8_3.toUpper() == searchName.toUpper()) {
+                found = true;
+                foundOffset = entryOffset;
+                break;
+            }
+
+            entryOffset += ENTRY_SIZE;
+        }
+
+        if (found) {
+            break;
+        }
+
+        currentCluster = readNextCluster(currentCluster);
+    }
+
+    if (!found) {
+        return QString();
+    }
+
+    // Update the entry name
+    m_stream.device()->seek(foundOffset);
+    quint8 newEntryData[ENTRY_SIZE];
+    m_stream.readRawData(reinterpret_cast<char*>(newEntryData), ENTRY_SIZE);
+
+    // Parse short name (8.3 format)
+    QStringList nameParts = newShortName.toUpper().split('.');
+    QString baseName = nameParts.isEmpty() ? "" : nameParts[0];
+    QString extension = nameParts.size() > 1 ? nameParts[1] : "";
+
+    // Fill name (8 bytes, space-padded)
+    for (int i = 0; i < 8; i++) {
+        if (i < baseName.length()) {
+            newEntryData[i] = baseName[i].toLatin1();
+        } else {
+            newEntryData[i] = ' ';
+        }
+    }
+
+    // Fill extension (3 bytes, space-padded)
+    for (int i = 0; i < 3; i++) {
+        if (i < extension.length()) {
+            newEntryData[8 + i] = extension[i].toLatin1();
+        } else {
+            newEntryData[8 + i] = ' ';
+        }
+    }
+
+    // Write the modified entry back
+    m_stream.device()->seek(foundOffset);
+    m_stream.writeRawData(reinterpret_cast<char*>(newEntryData), ENTRY_SIZE);
+
+    if (m_stream.status() != QDataStream::Ok) {
+        return QString();
+    }
+
+    return newShortName;
+}
+
 bool QFAT32FileSystem::isDirectoryEmpty(quint32 cluster)
 {
     if (cluster < 2) {
@@ -2805,4 +3463,325 @@ bool QFAT32FileSystem::createDirectory(const QString &path, QFATError &error)
     }
 
     return true;
+}
+
+QByteArray QFAT32FileSystem::readFilePartial(const QString &path, quint32 offset, quint32 length, QFATError &error)
+{
+    error = QFATError::None;
+
+    QFATFileInfo fileInfo = findFileByPath(path, error);
+    if (error != QFATError::None) {
+        m_lastError = error;
+        return QByteArray();
+    }
+
+    if (fileInfo.isDirectory) {
+        error = QFATError::InvalidPath;
+        m_lastError = error;
+        return QByteArray();
+    }
+
+    // Empty file or offset beyond file size
+    if (fileInfo.size == 0 || offset >= fileInfo.size || fileInfo.cluster < 2) {
+        return QByteArray();
+    }
+
+    // Adjust length if it exceeds file size
+    quint32 actualLength = qMin(length, fileInfo.size - offset);
+
+    // Read the entire file first (we can optimize this later to skip clusters)
+    QByteArray fullData = readClusterChain(fileInfo.cluster, fileInfo.size);
+    if (fullData.isEmpty() && fileInfo.size > 0) {
+        error = QFATError::ReadError;
+        m_lastError = error;
+        return QByteArray();
+    }
+
+    // Return the requested portion
+    return fullData.mid(offset, actualLength);
+}
+
+bool QFAT32FileSystem::renameFile(const QString &oldPath, const QString &newPath, QFATError &error)
+{
+    error = QFATError::None;
+
+    if (!m_device->isOpen()) {
+        error = QFATError::DeviceNotOpen;
+        m_lastError = error;
+        return false;
+    }
+
+    // Check if source exists
+    QFATFileInfo fileInfo = findFileByPath(oldPath, error);
+    if (error != QFATError::None) {
+        m_lastError = error;
+        return false;
+    }
+
+    // Parse old and new paths
+    QStringList oldParts = splitPath(oldPath);
+    QStringList newParts = splitPath(newPath);
+
+    if (oldParts.isEmpty() || newParts.isEmpty()) {
+        error = QFATError::InvalidPath;
+        m_lastError = error;
+        return false;
+    }
+
+    QString oldParentPath = oldParts.size() > 1 ? "/" + oldParts.mid(0, oldParts.size() - 1).join("/") : "/";
+    QString newParentPath = newParts.size() > 1 ? "/" + newParts.mid(0, newParts.size() - 1).join("/") : "/";
+
+    // If parent directories differ, this is a move operation
+    if (oldParentPath != newParentPath) {
+        return moveFile(oldPath, newPath, error);
+    }
+
+    // Same directory - just rename
+    QString newName = newParts.last();
+
+    // Check if new name already exists
+    QFATError existError;
+    findFileByPath(newPath, existError);
+    if (existError == QFATError::None) {
+        error = QFATError::InvalidPath; // Already exists
+        m_lastError = error;
+        return false;
+    }
+
+    // Update the directory entry name in place
+    QString newShortName = modifyDirectoryEntryName(oldPath, newName);
+    if (newShortName.isEmpty()) {
+        error = QFATError::WriteError;
+        m_lastError = error;
+        return false;
+    }
+
+    // Update in-memory mapping
+    QString oldNameLower = oldParts.last().toLower();
+    m_longToShortNameMap.remove(oldNameLower);
+    m_longToShortNameMap[newName.toLower()] = newShortName;
+
+    return true;
+}
+
+bool QFAT32FileSystem::moveFile(const QString &sourcePath, const QString &destPath, QFATError &error)
+{
+    error = QFATError::None;
+
+    if (!m_device->isOpen()) {
+        error = QFATError::DeviceNotOpen;
+        m_lastError = error;
+        return false;
+    }
+
+    // Read the file data
+    QFATFileInfo sourceInfo = findFileByPath(sourcePath, error);
+    if (error != QFATError::None) {
+        m_lastError = error;
+        return false;
+    }
+
+    // Check if destination already exists
+    QFATError destError;
+    findFileByPath(destPath, destError);
+    if (destError == QFATError::None) {
+        error = QFATError::InvalidPath; // Destination already exists
+        m_lastError = error;
+        return false;
+    }
+
+    if (sourceInfo.isDirectory) {
+        // For directories, we need to update the cluster reference
+        // Create new directory entry in destination
+        QStringList destParts = splitPath(destPath);
+        QString destParentPath = destParts.size() > 1 ? "/" + destParts.mid(0, destParts.size() - 1).join("/") : "/";
+
+        // Verify destination parent exists
+        if (destParentPath != "/") {
+            QFATError parentError;
+            QFATFileInfo parentInfo = findFileByPath(destParentPath, parentError);
+            if (parentError != QFATError::None || !parentInfo.isDirectory) {
+                error = QFATError::DirectoryNotFound;
+                m_lastError = error;
+                return false;
+            }
+        }
+
+        // Create new entry with same cluster
+        sourceInfo.longName = destParts.last();
+        if (!updateDirectoryEntry(destParentPath, sourceInfo)) {
+            error = QFATError::WriteError;
+            m_lastError = error;
+            return false;
+        }
+
+        // Delete old entry (but don't free clusters)
+        if (!deleteDirectoryEntry(sourcePath)) {
+            error = QFATError::WriteError;
+            m_lastError = error;
+            return false;
+        }
+    } else {
+        // For files, verify destination parent exists
+        QStringList destParts = splitPath(destPath);
+        QString destParentPath = destParts.size() > 1 ? "/" + destParts.mid(0, destParts.size() - 1).join("/") : "/";
+
+        if (destParentPath != "/") {
+            QFATError parentError;
+            QFATFileInfo parentInfo = findFileByPath(destParentPath, parentError);
+            if (parentError != QFATError::None || !parentInfo.isDirectory) {
+                error = QFATError::DirectoryNotFound;
+                m_lastError = error;
+                return false;
+            }
+        }
+
+        // Read and write to new location
+        QByteArray data = readFile(sourcePath, error);
+        if (error != QFATError::None) {
+            m_lastError = error;
+            return false;
+        }
+
+        if (!writeFile(destPath, data, error)) {
+            m_lastError = error;
+            return false;
+        }
+
+        // Delete source file
+        if (!deleteFile(sourcePath, error)) {
+            m_lastError = error;
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool QFAT32FileSystem::deleteDirectory(const QString &path, bool recursive, QFATError &error)
+{
+    error = QFATError::None;
+
+    if (!m_device->isOpen()) {
+        error = QFATError::DeviceNotOpen;
+        m_lastError = error;
+        return false;
+    }
+
+    // Find the directory
+    QFATFileInfo dirInfo = findFileByPath(path, error);
+    if (error != QFATError::None) {
+        m_lastError = error;
+        return false;
+    }
+
+    if (!dirInfo.isDirectory) {
+        error = QFATError::InvalidPath;
+        m_lastError = error;
+        return false;
+    }
+
+    // List directory contents
+    QList<QFATFileInfo> entries = listDirectory(dirInfo.cluster);
+
+    if (recursive) {
+        // Delete all contents recursively
+        for (const QFATFileInfo &entry : entries) {
+            // Skip . and .. entries
+            if (entry.name == "." || entry.name == "..") {
+                continue;
+            }
+
+            QString fullPath = path + "/" + entry.longName;
+
+            if (entry.isDirectory) {
+                if (!deleteDirectory(fullPath, true, error)) {
+                    m_lastError = error;
+                    return false;
+                }
+            } else {
+                if (!deleteFile(fullPath, error)) {
+                    m_lastError = error;
+                    return false;
+                }
+            }
+        }
+    } else {
+        // Check if directory is empty (only . and .. entries)
+        for (const QFATFileInfo &entry : entries) {
+            if (entry.name != "." && entry.name != "..") {
+                error = QFATError::InvalidPath; // Directory not empty
+                m_lastError = error;
+                return false;
+            }
+        }
+    }
+
+    // Use deleteFile to remove the empty directory
+    return deleteFile(path, error);
+}
+
+quint32 QFAT32FileSystem::getFreeSpace(QFATError &error)
+{
+    error = QFATError::None;
+
+    if (!m_device->isOpen()) {
+        error = QFATError::DeviceNotOpen;
+        m_lastError = error;
+        return 0;
+    }
+
+    quint16 bytesPerSector = readBytesPerSector();
+    quint8 sectorsPerCluster = readSectorsPerCluster();
+    quint16 reservedSectors = readReservedSectors();
+
+    m_stream.device()->seek(BPB_SECTORS_PER_FAT32_OFFSET);
+    quint32 sectorsPerFAT;
+    m_stream >> sectorsPerFAT;
+
+    quint32 fatOffset = reservedSectors * bytesPerSector;
+    quint32 totalClusters = (sectorsPerFAT * bytesPerSector) / 4; // 4 bytes per FAT32 entry
+    quint32 clusterSize = sectorsPerCluster * bytesPerSector;
+    quint32 freeClusters = 0;
+
+    // Count free clusters
+    for (quint32 cluster = 2; cluster < totalClusters && cluster < 0x0FFFFFF0; cluster++) {
+        m_stream.device()->seek(fatOffset + cluster * 4);
+        quint32 value;
+        m_stream >> value;
+        value &= 0x0FFFFFFF; // Mask to 28 bits
+
+        if (value == 0) {
+            freeClusters++;
+        }
+    }
+
+    return freeClusters * clusterSize;
+}
+
+quint32 QFAT32FileSystem::getTotalSpace(QFATError &error)
+{
+    error = QFATError::None;
+
+    if (!m_device->isOpen()) {
+        error = QFATError::DeviceNotOpen;
+        m_lastError = error;
+        return 0;
+    }
+
+    quint16 bytesPerSector = readBytesPerSector();
+    quint8 sectorsPerCluster = readSectorsPerCluster();
+    quint16 reservedSectors = readReservedSectors();
+
+    m_stream.device()->seek(BPB_SECTORS_PER_FAT32_OFFSET);
+    quint32 sectorsPerFAT;
+    m_stream >> sectorsPerFAT;
+
+    quint32 totalClusters = (sectorsPerFAT * bytesPerSector) / 4; // 4 bytes per FAT32 entry
+    quint32 clusterSize = sectorsPerCluster * bytesPerSector;
+
+    // Total usable clusters (starting from cluster 2)
+    quint32 usableClusters = totalClusters - 2;
+
+    return usableClusters * clusterSize;
 }
