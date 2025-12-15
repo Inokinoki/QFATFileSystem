@@ -375,7 +375,88 @@ else
 fi
 echo_info "FAT32 image created successfully: ${FAT32_IMAGE}"
 
+# Generate FAT12 image
+FAT12_IMAGE="${OUTPUT_DIR}/fat12.img"
+FAT12_MOUNT="/tmp/fat12_mount"
+
+if [[ -f "${FAT12_IMAGE}" ]]; then
+    echo_warn "Removing existing FAT12 image"
+    rm -f "${FAT12_IMAGE}"
+fi
+
+# FAT12 requires a small image (typically 1-2 MB for FAT12)
+if [[ $USE_MTOOLS -eq 1 ]]; then
+    # Use mtools approach (no mounting)
+    echo_info "Creating FAT12 image: ${FAT12_IMAGE} (1MB)"
+    dd if=/dev/zero of="${FAT12_IMAGE}" bs=1M count=1 2>/dev/null || {
+        echo_error "Failed to create FAT12 image file"
+        exit 1
+    }
+    mkfs.fat -F 12 -n "FAT12TEST" "${FAT12_IMAGE}" > /dev/null 2>&1 || {
+        echo_error "Failed to create FAT12 filesystem"
+        exit 1
+    }
+    echo_info "FAT12 filesystem created"
+
+    # Populate with minimal test content for FAT12
+    TEMP_DIR=$(mktemp -d)
+    echo "README content for FAT12" > "${TEMP_DIR}/README.TXT"
+    echo "Test file" > "${TEMP_DIR}/TEST.TXT"
+
+    export MTOOLS_SKIP_CHECK=1
+    mcopy -i "${FAT12_IMAGE}" "${TEMP_DIR}/README.TXT" ::/ 2>/dev/null
+    mcopy -i "${FAT12_IMAGE}" "${TEMP_DIR}/TEST.TXT" ::/ 2>/dev/null
+
+    rm -rf "${TEMP_DIR}"
+    echo_info "FAT12 test content created successfully"
+else
+    # Use traditional mount approach
+    echo_info "Creating FAT12 image: ${FAT12_IMAGE} (1MB)"
+    dd if=/dev/zero of="${FAT12_IMAGE}" bs=1M count=1 2>/dev/null || {
+        echo_error "Failed to create FAT12 image file"
+        exit 1
+    }
+
+    if [[ $IS_MACOS -eq 1 ]]; then
+        hdiutil attach -nomount "${FAT12_IMAGE}" > /tmp/hdiutil_output.txt
+        DISK_DEV=$(cat /tmp/hdiutil_output.txt | awk '{print $1}')
+        newfs_msdos -F 12 -v "FAT12TEST" "${DISK_DEV}"
+        hdiutil detach "${DISK_DEV}"
+        rm -f /tmp/hdiutil_output.txt
+
+        mkdir -p "${FAT12_MOUNT}"
+        hdiutil attach "${FAT12_IMAGE}" -mountpoint "${FAT12_MOUNT}"
+    else
+        mkfs.fat -F 12 -n "FAT12TEST" "${FAT12_IMAGE}" || {
+            echo_error "Failed to create FAT12 filesystem"
+            exit 1
+        }
+
+        mkdir -p "${FAT12_MOUNT}"
+        sudo mount -o loop,uid=$(id -u),gid=$(id -g) "${FAT12_IMAGE}" "${FAT12_MOUNT}" || {
+            echo_error "Failed to mount ${FAT12_IMAGE}"
+            exit 1
+        }
+    fi
+
+    echo_info "Image mounted at ${FAT12_MOUNT}"
+
+    # Populate with minimal test content for FAT12
+    echo "README content for FAT12" > "${FAT12_MOUNT}/README.TXT"
+    echo "Test file" > "${FAT12_MOUNT}/TEST.TXT"
+
+    sync
+    if [[ $IS_MACOS -eq 0 ]]; then
+        sleep 1
+    fi
+
+    unmount_image "${FAT12_MOUNT}"
+    echo_info "FAT12 test content created successfully"
+fi
+echo_info "FAT12 image created successfully: ${FAT12_IMAGE}"
+
 echo_info "All test images generated successfully!"
+echo_info "FAT12: ${FAT12_IMAGE}"
 echo_info "FAT16: ${FAT16_IMAGE}"
 echo_info "FAT32: ${FAT32_IMAGE}"
 
