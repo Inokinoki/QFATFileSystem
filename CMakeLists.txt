@@ -21,7 +21,10 @@ find_package(QT NAMES Qt6 Qt5 COMPONENTS Core REQUIRED)
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Core REQUIRED)
 
 add_library(QFATFS
-    qfatfilesystem.cpp
+    qfatfilesystem_base.cpp
+    qfat12filesystem.cpp
+    qfat16filesystem.cpp
+    qfat32filesystem.cpp
 )
 add_library(QFATFS::QFATFS ALIAS QFATFS)
 set_target_properties(QFATFS PROPERTIES PUBLIC_HEADER qfatfilesystem.h)
