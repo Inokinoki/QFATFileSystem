@@ -61,3 +61,9 @@ jobs:
         run: |
           cd build
           ctest -C ${{env.BUILD_TYPE}} --output-on-failure --verbose
+
+      - name: Test selective filesystem builds
+        run: |
+          cd examples/selective_fs
+          chmod +x test_build.sh
+          ./test_build.sh
