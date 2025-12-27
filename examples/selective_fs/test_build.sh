@@ -24,8 +24,9 @@ test_build() {
     rm -rf "$TEST_DIR"
     mkdir -p "$TEST_DIR"
 
-    # Create a temporary source directory with the specific CMakeLists
-    TEMP_SRC="temp_src_${NAME}"
+    # Create a temporary source directory at the same level as selective_fs
+    # This preserves the relative paths in the CMakeLists files
+    TEMP_SRC="../temp_src_${NAME}"
     rm -rf "$TEMP_SRC"
     mkdir -p "$TEMP_SRC"
     cp "${CMAKE_FILE}" "$TEMP_SRC/CMakeLists.txt"
@@ -34,13 +35,13 @@ test_build() {
     cd "$TEST_DIR"
 
     # Try to configure and build (point to temp source directory)
-    if cmake "../${TEMP_SRC}" > cmake_output.log 2>&1; then
+    if cmake "../../temp_src_${NAME}" > cmake_output.log 2>&1; then
         echo -e "${GREEN}✓ CMake configuration successful${NC}"
     else
         echo -e "${RED}✗ CMake configuration failed${NC}"
         echo "See ${TEST_DIR}/cmake_output.log for details"
         cd ..
-        rm -rf "$TEMP_SRC"
+        rm -rf "../temp_src_${NAME}"
         return 1
     fi
 
@@ -67,22 +68,22 @@ test_build() {
             ls -la . | head -20
             echo "See ${TEST_DIR}/make_output.log for details"
             cd ..
-            rm -rf "$TEMP_SRC"
+            rm -rf "../temp_src_${NAME}"
             return 1
         fi
     else
         echo -e "${RED}✗ Build failed${NC}"
         echo "See ${TEST_DIR}/make_output.log for details"
         cd ..
-        rm -rf "$TEMP_SRC"
+        rm -rf "../temp_src_${NAME}"
         return 1
     fi
 
     echo ""
     cd ..
 
-    # Cleanup temp source directory
-    rm -rf "$TEMP_SRC"
+    # Cleanup temp source directory (now in selective_fs, temp is in ../temp_src_${NAME})
+    rm -rf "../temp_src_${NAME}"
 
     return 0
 }
