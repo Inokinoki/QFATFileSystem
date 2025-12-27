@@ -23,18 +23,24 @@ test_build() {
     TEST_DIR="build_test_${NAME}"
     rm -rf "$TEST_DIR"
     mkdir -p "$TEST_DIR"
+
+    # Create a temporary source directory with the specific CMakeLists
+    TEMP_SRC="temp_src_${NAME}"
+    rm -rf "$TEMP_SRC"
+    mkdir -p "$TEMP_SRC"
+    cp "${CMAKE_FILE}" "$TEMP_SRC/CMakeLists.txt"
+    cp "example_${NAME}_only.cpp" "$TEMP_SRC/"
+
     cd "$TEST_DIR"
 
-    # Copy cmake file
-    cp "../${CMAKE_FILE}" CMakeLists.txt
-
-    # Try to configure and build
-    if cmake .. > cmake_output.log 2>&1; then
+    # Try to configure and build (point to temp source directory)
+    if cmake "../${TEMP_SRC}" > cmake_output.log 2>&1; then
         echo -e "${GREEN}✓ CMake configuration successful${NC}"
     else
         echo -e "${RED}✗ CMake configuration failed${NC}"
         echo "See ${TEST_DIR}/cmake_output.log for details"
         cd ..
+        rm -rf "$TEMP_SRC"
         return 1
     fi
 
@@ -61,17 +67,23 @@ test_build() {
             ls -la . | head -20
             echo "See ${TEST_DIR}/make_output.log for details"
             cd ..
+            rm -rf "$TEMP_SRC"
             return 1
         fi
     else
         echo -e "${RED}✗ Build failed${NC}"
         echo "See ${TEST_DIR}/make_output.log for details"
         cd ..
+        rm -rf "$TEMP_SRC"
         return 1
     fi
 
     echo ""
     cd ..
+
+    # Cleanup temp source directory
+    rm -rf "$TEMP_SRC"
+
     return 0
 }
 
