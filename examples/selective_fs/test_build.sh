@@ -38,15 +38,27 @@ test_build() {
         return 1
     fi
 
-    if make > make_output.log 2>&1; then
+    # Use cmake --build for better cross-platform compatibility
+    if cmake --build . > make_output.log 2>&1; then
         echo -e "${GREEN}✓ Build successful${NC}"
 
-        # Check binary exists
+        # Check binary exists (try both current directory and common build locations)
+        BINARY_PATH=""
         if [ -f "example_${NAME}_only" ]; then
-            SIZE=$(stat -f%z "example_${NAME}_only" 2>/dev/null || stat -c%s "example_${NAME}_only" 2>/dev/null || echo "unknown")
+            BINARY_PATH="example_${NAME}_only"
+        elif [ -f "./example_${NAME}_only" ]; then
+            BINARY_PATH="./example_${NAME}_only"
+        elif [ -f "bin/example_${NAME}_only" ]; then
+            BINARY_PATH="bin/example_${NAME}_only"
+        fi
+
+        if [ -n "$BINARY_PATH" ]; then
+            SIZE=$(stat -f%z "$BINARY_PATH" 2>/dev/null || stat -c%s "$BINARY_PATH" 2>/dev/null || echo "unknown")
             echo "  Binary size: ${SIZE} bytes"
         else
             echo -e "${RED}✗ Binary not found: example_${NAME}_only${NC}"
+            echo "  Files in build directory:"
+            ls -la . | head -20
             echo "See ${TEST_DIR}/make_output.log for details"
             cd ..
             return 1
