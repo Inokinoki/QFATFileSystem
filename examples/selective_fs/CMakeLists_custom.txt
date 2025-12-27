@@ -1,0 +1,66 @@
+# CMakeLists.txt for custom filesystem selection
+# This example shows how to include ONLY the filesystem types you need
+# Uncomment the filesystem types you want to include
+
+cmake_minimum_required(VERSION 3.11)
+project(CustomFATSelection)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTOMOC ON)
+
+find_package(QT NAMES Qt6 Qt5 COMPONENTS Core REQUIRED)
+find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Core REQUIRED)
+
+# Include the header
+include_directories(../..)
+
+# Select which filesystem types to include
+set(INCLUDE_FAT12 ON)  # Set to ON or OFF
+set(INCLUDE_FAT16 ON)  # Set to ON or OFF
+set(INCLUDE_FAT32 ON)  # Set to ON or OFF
+
+# Build source list based on selection
+set(QFATFS_SOURCES
+    ../../qfatfilesystem_base.cpp
+)
+
+if(INCLUDE_FAT12)
+    list(APPEND QFATFS_SOURCES ../../qfat12filesystem.cpp)
+    message(STATUS "Including FAT12 support")
+endif()
+
+if(INCLUDE_FAT16)
+    list(APPEND QFATFS_SOURCES ../../qfat16filesystem.cpp)
+    message(STATUS "Including FAT16 support")
+endif()
+
+if(INCLUDE_FAT32)
+    list(APPEND QFATFS_SOURCES ../../qfat32filesystem.cpp)
+    message(STATUS "Including FAT32 support")
+endif()
+
+# Build the library with selected filesystem types
+add_library(QFATFS_CUSTOM ${QFATFS_SOURCES})
+target_link_libraries(QFATFS_CUSTOM PUBLIC Qt${QT_VERSION_MAJOR}::Core)
+
+# Optional: Build examples for enabled filesystems
+if(INCLUDE_FAT12)
+    add_executable(example_fat12_custom example_fat12_only.cpp)
+    target_link_libraries(example_fat12_custom QFATFS_CUSTOM Qt${QT_VERSION_MAJOR}::Core)
+endif()
+
+if(INCLUDE_FAT16)
+    add_executable(example_fat16_custom example_fat16_only.cpp)
+    target_link_libraries(example_fat16_custom QFATFS_CUSTOM Qt${QT_VERSION_MAJOR}::Core)
+endif()
+
+if(INCLUDE_FAT32)
+    add_executable(example_fat32_custom example_fat32_only.cpp)
+    target_link_libraries(example_fat32_custom QFATFS_CUSTOM Qt${QT_VERSION_MAJOR}::Core)
+endif()
+
+# Usage:
+# To change which filesystems are included, modify the INCLUDE_* variables above
+# or use cmake command line:
+#   cmake -DINCLUDE_FAT12=OFF -DINCLUDE_FAT16=ON -DINCLUDE_FAT32=ON ..

@@ -1,0 +1,38 @@
+# CMakeLists.txt for building with FAT12 support ONLY
+# This example shows how to include only the FAT12 filesystem in your project
+# to reduce binary size and compilation time
+
+cmake_minimum_required(VERSION 3.11)
+project(FAT12OnlyExample)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTOMOC ON)
+
+find_package(QT NAMES Qt6 Qt5 COMPONENTS Core REQUIRED)
+find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Core REQUIRED)
+
+# Include the header
+include_directories(../..)
+
+# Build a library with ONLY FAT12 support
+add_library(QFATFS_FAT12_ONLY
+    ../../qfatfilesystem_base.cpp
+    ../../qfat12filesystem.cpp
+    # Note: We do NOT include qfat16filesystem.cpp or qfat32filesystem.cpp
+)
+
+target_link_libraries(QFATFS_FAT12_ONLY PUBLIC Qt${QT_VERSION_MAJOR}::Core)
+
+# Build the example
+add_executable(example_fat12_only example_fat12_only.cpp)
+target_link_libraries(example_fat12_only QFATFS_FAT12_ONLY Qt${QT_VERSION_MAJOR}::Core)
+
+# Usage instructions:
+# 1. Copy this file to CMakeLists.txt in this directory
+# 2. mkdir build && cd build
+# 3. cmake ..
+# 4. make
+# 5. ./example_fat12_only
+#
+# Result: Your binary will include ONLY FAT12 support, making it smaller
