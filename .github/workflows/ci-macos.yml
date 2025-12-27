@@ -53,6 +53,7 @@ jobs:
       - name: Verify generated test images
         run: |
           ls -lh build/tests/data/
+          test -f build/tests/data/fat12.img || exit 1
           test -f build/tests/data/fat16.img || exit 1
           test -f build/tests/data/fat32.img || exit 1
           echo "Test images generated successfully"
